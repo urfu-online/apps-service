@@ -4,7 +4,7 @@
 
 ### 1. Организация файлов сервиса
 
-```
+```shell
 /apps/services/{public|internal}/<service-name>/
 ├── service.yml              # Манифест сервиса
 ├── docker-compose.yml      # Конфигурация Docker Compose

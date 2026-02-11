@@ -2,11 +2,11 @@ version: '3.8'
 
 # Docker Compose configuration for Platform Master Service
 #
-# This configuration supports both internal and external authentication providers.
+# This configuration supports both builtin and external authentication providers.
 # Keycloak service is optional and can be enabled for external authentication.
 #
 # Examples:
-#   Default (internal auth): docker compose up -d
+#   Default (builtin auth): docker compose up -d
 #   With Keycloak: docker compose -f docker-compose.yml -f keycloak-profile.yml up -d
 #   Development mode: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
@@ -27,7 +27,7 @@ services:
       - CADDY_CONFIG_PATH=/caddy
       - BACKUP_PATH=/backups
       - DATABASE_URL=sqlite:///./master.db
-      - AUTH_PROVIDER=internal  # or 'keycloak' when using external authentication
+      - AUTH_PROVIDER=builtin  # or 'keycloak' when using external authentication
       - APP_ENV=prod
       # Keycloak settings (only used when AUTH_PROVIDER=keycloak)
       - KEYCLOAK_SERVER_URL=http://keycloak:8080/auth
@@ -37,9 +37,9 @@ services:
       - TELEGRAM_CHAT_IDS=[]
     volumes:
       - ./master.db:/app/master.db
-      - ../services:/services
-      - ../_core/caddy:/caddy
-      - ../backups:/backups
+      - ../../services:/services
+      - ../../_core/caddy:/caddy
+      - ../../backups/backups:/backups
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - platform
