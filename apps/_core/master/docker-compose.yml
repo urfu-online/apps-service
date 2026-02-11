@@ -1,0 +1,69 @@
+version: '3.8'
+
+# Docker Compose configuration for Platform Master Service
+#
+# This configuration supports both internal and external authentication providers.
+# Keycloak service is optional and can be enabled for external authentication.
+#
+# Examples:
+#   Default (internal auth): docker compose up -d
+#   With Keycloak: docker compose -f docker-compose.yml -f keycloak-profile.yml up -d
+#   Development mode: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+  master:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BUILD_ENV=prod
+    container_name: platform-master
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    user: "0:0"
+    environment:
+      - SERVICES_PATH=/services
+      - CADDY_CONFIG_PATH=/caddy
+      - BACKUP_PATH=/backups
+      - DATABASE_URL=sqlite:///./master.db
+      - AUTH_PROVIDER=internal  # or 'keycloak' when using external authentication
+      - APP_ENV=prod
+      # Keycloak settings (only used when AUTH_PROVIDER=keycloak)
+      - KEYCLOAK_SERVER_URL=http://keycloak:8080/auth
+      - KEYCLOAK_REALM=platform
+      - KEYCLOAK_CLIENT_ID=master-service
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_IDS=[]
+    volumes:
+      - ./master.db:/app/master.db
+      - ../services:/services
+      - ../_core/caddy:/caddy
+      - ../backups:/backups
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - platform
+
+  # Keycloak service for external authentication (optional)
+  # To enable, use a separate profile file or uncomment this section
+  # keycloak:
+  #   image: quay.io/keycloak/keycloak:22.0.1
+  #   container_name: keycloak
+  #   restart: unless-stopped
+  #   environment:
+  #     - KEYCLOAK_ADMIN=admin
+  #     - KEYCLOAK_ADMIN_PASSWORD=admin
+  #     - KC_DB=dev-file
+  #     - KC_DB_URL=/opt/keycloak/data/keycloak.h2.db
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - ./keycloak-data:/opt/keycloak/data
+  #   networks:
+  #     - platform
+  #   command: start-dev
+ 
+networks:
+  platform:
+    external: true
+    name: platform_network

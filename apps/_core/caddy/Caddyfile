@@ -1,0 +1,24 @@
+{
+    email admin@urfu.online
+    admin 0.0.0.0:2019
+
+    # Access log (по умолчанию)
+    log {
+        output file /var/log/caddy/access.log
+        format json
+        level INFO
+    }
+
+    # Debug log (именованный)
+    log debug {
+        output file /var/log/caddy/debug.log
+        format json
+        level DEBUG
+    }
+}
+
+# Импорт глобальных сниппетов
+import /etc/caddy/snippets/*.caddy
+
+# Импорт всех конфигураций сервисов
+import /etc/caddy/conf.d/*.caddy

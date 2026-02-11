@@ -1,0 +1,21 @@
+version: '3.8'
+
+# Development profile for Platform Master Service
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+  master:
+    build:
+      args:
+        - BUILD_ENV=dev
+    environment:
+      - APP_ENV=dev
+      - DEBUG=true
+    volumes:
+      - ./master.db:/app/master.db
+      - ../services:/services
+      - ../_core/caddy:/caddy
+      - ../backups:/backups
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/app  # Mount source code for development
+    command: ["poetry", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

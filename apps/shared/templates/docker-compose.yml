@@ -1,0 +1,64 @@
+# apps/shared/templates/docker-compose.yml
+
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${SERVICE_NAME:-my-service}
+    restart: unless-stopped
+    
+    # Метки для обнаружения и мониторинга
+    labels:
+      - "platform.managed=true"
+      - "platform.service=${SERVICE_NAME}"
+      - "platform.version=${SERVICE_VERSION:-1.0.0}"
+      - "platform.visibility=${VISIBILITY:-internal}"
+      
+      # Метрики Prometheus
+      - "prometheus.scrape=true"
+      - "prometheus.port=8000"
+      - "prometheus.path=/metrics"
+    
+    environment:
+      - SERVICE_NAME=${SERVICE_NAME}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    
+    env_file:
+      - .env
+      - .env.local  # опционально, не коммитится
+    
+    volumes:
+      - ./data:/app/data
+    
+    networks:
+      - platform
+    
+    # Логирование в Loki
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-batch-size: "400"
+        labels: "service,environment"
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    deploy:
+      resources:
+        limits:
+          memory: ${MEMORY_LIMIT:-512M}
+          cpus: '${CPU_LIMIT:-0.5}'
+
+networks:
+  platform:
+    external: true
+    name: platform_network

@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  restic:
+    image: restic/restic:latest
+    container_name: restic_backup
+    restart: unless-stopped
+    environment:
+      - RESTIC_REPOSITORY=/backups
+      - RESTIC_PASSWORD=changeit
+    volumes:
+      - ./restic-cache:/cache
+      - ../../backups:/backups
+      - ../../services:/services:ro
+    networks:
+      - platform
+
+networks:
+  platform:
+    external: true
+    name: platform_network

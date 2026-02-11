@@ -1,0 +1,24 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "2019:2019"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./conf.d:/etc/caddy/conf.d:ro
+      - ./snippets:/etc/caddy/snippets:ro
+      - ./sites:/srv:ro
+      - ./data:/data
+      - ./config:/config
+      - ./logs:/var/log/caddy
+    networks:
+      - platform
+
+networks:
+  platform:
+    external: true
+    name: platform_network

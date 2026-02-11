@@ -1,0 +1,44 @@
+# Master service routing
+:80 {
+    # Handle all WebSocket connections for NiceGUI
+    @websocket {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    handle @websocket {
+        reverse_proxy platform-master:8000 {
+            header_up Connection {>Connection}
+            header_up Upgrade {>Upgrade}
+        }
+    }
+    
+    # Handle NiceGUI WebSocket paths
+    handle_path /_nicegui_ws/socket.io/* {
+        reverse_proxy platform-master:8000 {
+            header_up Connection {>Connection}
+            header_up Upgrade {>Upgrade}
+        }
+    }
+    
+    handle_path /socket.io/* {
+        reverse_proxy platform-master:8000 {
+            header_up Connection {>Connection}
+            header_up Upgrade {>Upgrade}
+        }
+    }
+    
+    handle_path /_nicegui_ws/* {
+        reverse_proxy platform-master:8000 {
+            header_up Connection {>Connection}
+            header_up Upgrade {>Upgrade}
+        }
+    }
+    
+    handle_path /api/* {
+        reverse_proxy platform-master:8000
+    }
+    
+    handle {
+        reverse_proxy platform-master:8000
+    }
+}
