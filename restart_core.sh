@@ -30,16 +30,16 @@ done
 
 # Рестарт master-сервисов
 echo "Останавливаю master-сервис..."
-docker compose -f apps/_core/master/docker-compose.yml down
+docker compose -f _core/master/docker-compose.yml down
 
 echo "Запускаю master-сервис..."
-docker compose -f apps/_core/master/docker-compose.yml up -d $BUILD_FLAG
+docker compose -f _core/master/docker-compose.yml up -d $BUILD_FLAG
 
 # Рестарт Caddy
 echo "Останавливаю Caddy..."
-docker compose -f apps/_core/caddy/docker-compose.yml down
+docker compose -f _core/caddy/docker-compose.yml down
 
 echo "Запускаю Caddy..."
-docker compose -f apps/_core/caddy/docker-compose.yml up -d $BUILD_FLAG
+docker compose -f _core/caddy/docker-compose.yml up -d $BUILD_FLAG
 
 echo "✅ Обновление завершено."

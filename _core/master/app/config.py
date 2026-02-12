@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # Пути
-    SERVICES_PATH: str = "/projects/apps-service-opus/apps/services"
-    CADDY_CONFIG_PATH: str = "/projects/apps-service-opus/apps/_core/caddy"
-    BACKUP_PATH: str = "/projects/apps-service-opus/apps/backups"
+    SERVICES_PATH: str = "/projects/apps-service-opus/services"
+    CADDY_CONFIG_PATH: str = "/projects/apps-service-opus/_core/caddy"
+    BACKUP_PATH: str = "/projects/apps-service-opus/backups"
     
     # База данных
     DATABASE_URL: str = "sqlite:///./master.db"

@@ -28,7 +28,7 @@ class BackupManager:
         # Restic репозиторий
         self.restic_repo = settings.RESTIC_REPOSITORY
         self.restic_password = settings.RESTIC_PASSWORD
-        self.restic_scripts_path = Path("/projects/apps-service-opus/apps/_core/backup/scripts")
+        self.restic_scripts_path = Path("/projects/apps-service-opus/_core/backup/scripts")
     
     async def backup_service(
         self, 
@@ -56,10 +56,10 @@ class BackupManager:
             # Бэкап файлов
             if service.backup_config.paths:
                 for path in service.backup_config.paths:
-                    source_path = Path("/projects/apps-service-opus/apps/services") / service.visibility.value / service.name / path
+                    source_path = Path("/projects/apps-service-opus/services") / service.visibility.value / service.name / path
                     if source_path.exists():
                         file_result = await self._backup_files(
-                            source_path, 
+                            source_path,
                             backup_path / "files" / path.lstrip("./")
                         )
                         result["files"].append(file_result)
@@ -224,7 +224,7 @@ class BackupManager:
         try:
             # Подготовка окружения для Restic
             env = os.environ.copy()
-            env["RESTIC_REPOSITORY"] = self.restic_repo or "/projects/apps-service-opus/apps/backups"
+            env["RESTIC_REPOSITORY"] = self.restic_repo or "/projects/apps-service-opus/backups"
             env["RESTIC_PASSWORD"] = self.restic_password or "changeit"
             
             # Запуск скрипта бэкапа

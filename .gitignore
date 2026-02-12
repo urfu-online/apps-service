@@ -82,7 +82,7 @@ profile_default/
 ipython_config.py
 
 # pyenv
-.python-version
+# .python-version
 
 # celery beat schedule file
 celerybeat-schedule
@@ -118,15 +118,16 @@ dmypy.json
 .pyre/
 
 run.sh
-apps/_core/caddy/conf.d/apps-openedu-urfu-ru.caddy
-apps/_core_alt/
+_core/caddy/conf.d/apps-openedu-urfu-ru.caddy
+_core_alt/
 infra/
 .codeassistantmodes
-*.pdf
-apps/manager.sh
 ops
 manager.sh
 docker-manager.sh
-apps/_core/master/master.db
 .codeassistant
 ai_summary.md
+_core/master/master.db
+.legacy/
+ai_summary.pdf
+manager.sh
