@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -uo pipefail
 
 log() { echo -e "\033[0;34mℹ️  $1\033[0m"; }
 ok() { echo -e "\033[0;32m✅ $1\033[0m"; }
@@ -7,8 +7,6 @@ warn() { echo -e "\033[1;33m⚠️  $1\033[0m"; }
 err() { echo -e "\033[0;31m❌ $1\033[0m" >&2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIR="$HOME/.config/ops-manager"
-CONFIG_FILE="$CONFIG_DIR/config.yml"
 
 echo "🚀 Ops Manager Installation"
 echo "=========================="
@@ -45,6 +43,9 @@ esac
 echo ""
 read -rp "Path to project root (where _core/, services/ are) [$DEFAULT_ROOT]: " PROJECT_ROOT
 PROJECT_ROOT="${PROJECT_ROOT:-$DEFAULT_ROOT}"
+
+# Define config file after PROJECT_ROOT is set
+CONFIG_FILE="$PROJECT_ROOT/.ops-config.yml"
 
 # Validate
 if [[ ! -d "$PROJECT_ROOT" ]]; then
@@ -88,7 +89,6 @@ mkdir -p "$TARGET" 2>/dev/null || true
 
 # --- Create config ---
 log "Creating config at $CONFIG_FILE..."
-mkdir -p "$CONFIG_DIR"
 
 cat > "$CONFIG_FILE" << EOF
 # Ops Manager Configuration
@@ -118,6 +118,7 @@ set -euo pipefail
 # Config locations
 CONFIG_CANDIDATES=(
     "$PWD/.ops-config.yml"
+    "$(dirname "$0")/.ops-config.yml"
     "$HOME/.config/ops-manager/config.yml"
 )
 
