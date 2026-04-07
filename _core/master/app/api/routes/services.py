@@ -64,7 +64,7 @@ async def get_service(
     stats = await app.state.docker.get_stats(service)
     
     return {
-        "manifest": service.dict(),
+        "manifest": service.model_dump(),
         "stats": stats
     }
 

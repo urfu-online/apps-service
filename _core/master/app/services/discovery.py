@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Dict, Optional, List
 import yaml
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 import aiofiles
 import logging
@@ -81,6 +81,13 @@ class ServiceDiscovery:
         self.observer.schedule(event_handler, str(self.services_path), recursive=True)
         self.observer.start()
         logger.info(f"Started watching {self.services_path} for service changes")
+
+    def stop_watcher(self):
+        """Остановка наблюдателя"""
+        if self.observer.is_alive():
+            self.observer.stop()
+            self.observer.join(timeout=5)
+            logger.info(f"Stopped watching {self.services_path}")
     
     async def scan_all(self) -> Dict[str, ServiceManifest]:
         """Сканирование всех директорий сервисов"""
@@ -120,7 +127,11 @@ class ServiceDiscovery:
             async with aiofiles.open(manifest_path, 'r') as f:
                 content = await f.read()
                 data = yaml.safe_load(content)
-            
+
+            if data is None:
+                logger.warning(f"Empty service.yml at {manifest_path}")
+                return None
+
             manifest = ServiceManifest(**data)
             manifest.path = service_dir
             manifest.visibility = visibility
@@ -232,35 +243,35 @@ class ServiceChangeHandler(FileSystemEventHandler):
         """Обработка изменения файла"""
         if event.is_directory:
             return
-        
+
         # Проверяем, что изменение касается service.yml или docker-compose.yml
-        if 'service.yml' in event.src_path or 'docker-compose.yml' in event.src_path:
+        if event.src_path.endswith('service.yml') or event.src_path.endswith('docker-compose.yml'):
             logger.info(f"Service configuration changed: {event.src_path}")
             # Отправляем событие об изменении сервиса
             asyncio.create_task(event_bus.emit("service.config.changed", {
                 "path": event.src_path
             }))
-    
+
     def on_created(self, event):
         """Обработка создания файла"""
         if event.is_directory:
             return
-        
+
         # Проверяем, что создан service.yml или docker-compose.yml
-        if 'service.yml' in event.src_path or 'docker-compose.yml' in event.src_path:
+        if event.src_path.endswith('service.yml') or event.src_path.endswith('docker-compose.yml'):
             logger.info(f"New service configuration created: {event.src_path}")
             # Отправляем событие о создании сервиса
             asyncio.create_task(event_bus.emit("service.config.created", {
                 "path": event.src_path
             }))
-    
+
     def on_deleted(self, event):
         """Обработка удаления файла"""
         if event.is_directory:
             return
-        
+
         # Проверяем, что удален service.yml или docker-compose.yml
-        if 'service.yml' in event.src_path or 'docker-compose.yml' in event.src_path:
+        if event.src_path.endswith('service.yml') or event.src_path.endswith('docker-compose.yml'):
             logger.info(f"Service configuration deleted: {event.src_path}")
             # Отправляем событие об удалении сервиса
             asyncio.create_task(event_bus.emit("service.config.deleted", {

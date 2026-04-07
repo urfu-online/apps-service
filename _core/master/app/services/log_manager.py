@@ -2,7 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import Dict, List, Optional
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 import aiofiles
 from collections import deque
 
@@ -61,7 +61,7 @@ class LogManager:
         
         # Добавляем временную метку если её нет
         if not log_entry.startswith('['):
-            timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             log_entry = f"[{timestamp}] {log_entry}"
         
         self.log_cache[service_name].append(log_entry)

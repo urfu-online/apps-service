@@ -1,6 +1,6 @@
 """Компонент просмотра логов."""
 from nicegui import ui
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Callable
 from enum import Enum
 
@@ -88,7 +88,7 @@ class LogViewer(ui.column):
             timestamp: Временная метка (по умолчанию сейчас)
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(timezone.utc)
         
         config = self.LEVEL_CONFIG.get(level, self.LEVEL_CONFIG[LogLevel.INFO])
         

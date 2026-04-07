@@ -56,7 +56,7 @@ services:
       resources:
         limits:
           memory: ${MEMORY_LIMIT:-512M}
-          cpus: '${CPU_LIMIT:-0.5}'
+          cpus: ${CPU_LIMIT:-0.5}
 
 networks:
   platform:

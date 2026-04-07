@@ -1,13 +1,28 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
+import asyncio
+import logging
 
 from app.core.security import get_current_user
 from app.core.database import get_db
 from app.models.deployment import Deployment, DeploymentLog
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+# Хранилище фоновых задач — предотвращает GC
+_background_tasks: list[asyncio.Task] = []
+
+
+def _create_tracked_task(coro):
+    """Создать asyncio.Task и сохранить ссылку для предотвращения GC."""
+    task = asyncio.create_task(coro)
+    _background_tasks.append(task)
+    task.add_done_callback(lambda t: _background_tasks.remove(t) if t in _background_tasks else None)
+    return task
 
 
 class DeploymentResponse(BaseModel):
@@ -115,11 +130,10 @@ async def start_deployment(
     
     # Запускаем деплой в фоне
     from app.main import app
-    import asyncio
-    asyncio.create_task(
+    _create_tracked_task(
         _execute_deployment(deployment.id, service_manifest, request)
     )
-    
+
     return deployment
 
 
@@ -143,8 +157,7 @@ async def rollback_deployment(
     
     # Запускаем откат в фоне
     from app.main import app
-    import asyncio
-    asyncio.create_task(
+    _create_tracked_task(
         _execute_rollback(deployment.id)
     )
     
@@ -155,29 +168,34 @@ async def _execute_deployment(deployment_id: int, service, request: DeployReques
     """Выполнение деплоя в фоне"""
     from app.main import app
     db = next(get_db())
-    
+
     try:
         # Обновляем статус
         deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
+        if not deployment:
+            logger.error(f"Deployment {deployment_id} not found")
+            return
+
         deployment.status = "in_progress"
         db.commit()
-        
+
         # Выполняем деплой через DockerManager
         result = await app.state.docker.deploy_service(
             service,
             build=request.build,
             pull=request.pull
         )
-        
+
         # Обновляем статус
-        deployment.status = "completed" if result["success"] else "failed"
-        deployment.success = result["success"]
-        deployment.finished_at = datetime.utcnow()
-        deployment.rollback_available = result["success"]
-        
+        deployment.status = "completed" if result.get("success", False) else "failed"
+        deployment.success = result.get("success", False)
+        deployment.finished_at = datetime.now(timezone.utc)
+        deployment.rollback_available = result.get("success", False)
+
         # Сохраняем логи
-        if result["logs"]:
-            for log_line in result["logs"]:
+        logs = result.get("logs", "")
+        if logs:
+            for log_line in logs:
                 if log_line.strip():  # Пропускаем пустые строки
                     log_entry = DeploymentLog(
                         deployment_id=deployment.id,
@@ -185,92 +203,103 @@ async def _execute_deployment(deployment_id: int, service, request: DeployReques
                         message=log_line
                     )
                     db.add(log_entry)
-        
+
         db.commit()
-        
+
         # Отправляем уведомление
         await app.state.notifier.send_deployment_notification(
             service.name,
             request.version,
-            "success" if result["success"] else "failed",
-            "\n".join(result["logs"][-10:]) if result["logs"] else None  # Последние 10 строк логов
+            "success" if result.get("success", False) else "failed",
+            "\n".join(logs[-10:]) if logs else None  # Последние 10 строк логов
         )
-        
+
     except Exception as e:
         # Обновляем статус при ошибке
         deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
-        deployment.status = "failed"
-        deployment.success = False
-        deployment.finished_at = datetime.utcnow()
-        
-        # Сохраняем ошибку в логах
-        log_entry = DeploymentLog(
-            deployment_id=deployment.id,
-            level="error",
-            message=str(e)
-        )
-        db.add(log_entry)
-        db.commit()
-        
-        # Отправляем уведомление об ошибке
-        await app.state.notifier.send_deployment_notification(
-            service.name,
-            request.version,
-            "failed",
-            str(e)
-        )
+        if deployment:
+            deployment.status = "failed"
+            deployment.success = False
+            deployment.finished_at = datetime.now(timezone.utc)
+
+            # Сохраняем ошибку в логах
+            log_entry = DeploymentLog(
+                deployment_id=deployment.id,
+                level="error",
+                message=str(e)
+            )
+            db.add(log_entry)
+            db.commit()
+
+            # Отправляем уведомление об ошибке
+            await app.state.notifier.send_deployment_notification(
+                service.name,
+                request.version,
+                "failed",
+                str(e)
+            )
+    finally:
+        db.close()
 
 
 async def _execute_rollback(deployment_id: int):
     """Выполнение отката в фоне"""
     from app.main import app
     db = next(get_db())
-    
+
     try:
         # Получаем деплой
         deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
         if not deployment:
+            logger.error(f"Deployment {deployment_id} not found for rollback")
             return
-        
+
         # Получаем сервис
         service_manifest = app.state.discovery.get_service_by_id(deployment.service_id)
         if not service_manifest:
-            raise HTTPException(status_code=404, detail="Service not found")
-        
+            logger.error(f"Service {deployment.service_id} not found for rollback")
+            deployment.status = "rollback_failed"
+            deployment.finished_at = datetime.now(timezone.utc)
+            db.commit()
+            return
+
         # Обновляем статус
         deployment.status = "rolling_back"
         db.commit()
-        
+
         # Здесь должна быть логика отката
         # В упрощенной реализации просто перезапускаем предыдущую версию
         result = await app.state.docker.restart_service(service_manifest)
-        
+
         # Обновляем статус
-        deployment.status = "rollback_completed" if result["success"] else "rollback_failed"
-        deployment.finished_at = datetime.utcnow()
+        deployment.status = "rollback_completed" if result.get("success", False) else "rollback_failed"
+        deployment.finished_at = datetime.now(timezone.utc)
         db.commit()
-        
+
         # Отправляем уведомление
         await app.state.notifier.send(
-            f"🔄 Rollback {'completed' if result['success'] else 'failed'} for {service_manifest.name}"
+            f"🔄 Rollback {'completed' if result.get('success', False) else 'failed'} for {service_manifest.name}"
         )
-        
+
     except Exception as e:
         # Обновляем статус при ошибке
         deployment = db.query(Deployment).filter(Deployment.id == deployment_id).first()
-        deployment.status = "rollback_failed"
-        deployment.finished_at = datetime.utcnow()
-        
-        # Сохраняем ошибку в логах
-        log_entry = DeploymentLog(
-            deployment_id=deployment.id,
-            level="error",
-            message=str(e)
-        )
-        db.add(log_entry)
-        db.commit()
-        
-        # Отправляем уведомление об ошибке
-        await app.state.notifier.send(
-            f"❌ Rollback failed for {service_manifest.name}: {e}"
-        )
+        if deployment:
+            deployment.status = "rollback_failed"
+            deployment.finished_at = datetime.now(timezone.utc)
+
+            # Сохраняем ошибку в логах
+            log_entry = DeploymentLog(
+                deployment_id=deployment.id,
+                level="error",
+                message=str(e)
+            )
+            db.add(log_entry)
+            db.commit()
+
+            # Отправляем уведомление об ошибке
+            await app.state.notifier.send(
+                f"❌ Rollback failed: {e}"
+            )
+    finally:
+        db.close()

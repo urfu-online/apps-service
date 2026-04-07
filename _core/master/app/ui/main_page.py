@@ -1,4 +1,5 @@
 """Главная страница дашборда Platform Manager."""
+import asyncio
 from nicegui import ui
 
 from app.ui.components.base import (
@@ -108,20 +109,20 @@ async def _render_service_row(service):
                 )
                 create_icon_button(
                     'refresh',
-                    lambda s=service: _handle_action(s.name, 'restart'),
+                    lambda s=service: asyncio.ensure_future(_handle_action(s.name, 'restart')),
                     tooltip='Перезапустить'
                 )
                 if service.status == 'running':
                     create_icon_button(
                         'stop_circle',
-                        lambda s=service: _handle_action(s.name, 'stop'),
+                        lambda s=service: asyncio.ensure_future(_handle_action(s.name, 'stop')),
                         color='negative',
                         tooltip='Остановить'
                     )
                 else:
                     create_icon_button(
                         'play_circle',
-                        lambda s=service: _handle_action(s.name, 'deploy'),
+                        lambda s=service: asyncio.ensure_future(_handle_action(s.name, 'deploy')),
                         color='positive',
                         tooltip='Запустить'
                     )
@@ -176,9 +177,10 @@ async def _handle_action(service_name: str, action: str):
 
     ui.notify(f'{action_label} {service_name}...', type='info')
     result = await action_func(service)
-    
+
     if result.get('success'):
-        ui.notify(f'{service_name} {action_label.lower()[:-1]}', type='positive')
+        action_done = {'deploy': 'запущен', 'restart': 'перезапущен', 'stop': 'остановлен'}.get(action, 'готово')
+        ui.notify(f'{service_name} {action_done}', type='positive')
         ui.navigate.reload()
     else:
         msg = result.get('message', 'Неизвестная ошибка')

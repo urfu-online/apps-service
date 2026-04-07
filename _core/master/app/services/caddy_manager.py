@@ -3,7 +3,7 @@ from typing import Dict
 import aiofiles
 import aiohttp
 from jinja2 import Environment, FileSystemLoader
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.services.discovery import ServiceManifest
@@ -84,7 +84,7 @@ class CaddyManager:
         content = template.render(
             service=service,
             route=route,
-            generated_at=datetime.utcnow().isoformat()
+            generated_at=datetime.now(timezone.utc).isoformat()
         )
         
         config_file = self.conf_d / f"{service.name}.caddy"
@@ -108,7 +108,7 @@ class CaddyManager:
         content = template.render(
             base_domain=base_domain,
             services=svc_routes,
-            generated_at=datetime.utcnow().isoformat()
+            generated_at=datetime.now(timezone.utc).isoformat()
         )
         
         # Санитизация имени файла
@@ -131,7 +131,7 @@ class CaddyManager:
         content = template.render(
             service=service,
             route=route,
-            generated_at=datetime.utcnow().isoformat()
+            generated_at=datetime.now(timezone.utc).isoformat()
         )
         
         config_file = self.conf_d / f"{service.name}_port.caddy"

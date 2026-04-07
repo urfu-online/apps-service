@@ -333,13 +333,16 @@ if [[ "$INSTALL_PLATFORM_CLI" == "true" ]]; then
 #!/bin/bash
 # Platform CLI wrapper - запускает platform через pipx или напрямую
 
+# PROJECT_ROOT подставляется при установке
+PROJECT_ROOT="__PROJECT_ROOT__"
+
 # Проверка наличия platform (pipx installation)
 if command -v platform &> /dev/null; then
     exec platform "$@"
 fi
 
 # Fallback: запуск через pipx install
-PLATFORM_CLI_DIR="\$PROJECT_ROOT/_core/platform-cli"
+PLATFORM_CLI_DIR="$PROJECT_ROOT/_core/platform-cli"
 
 if [[ -d "$PLATFORM_CLI_DIR" ]]; then
     # Проверка pipx
@@ -357,10 +360,13 @@ if [[ -d "$PLATFORM_CLI_DIR" ]]; then
 fi
 
 echo "❌ platform CLI не найден. Установите:"
-echo "   pipx install \$PROJECT_ROOT/_core/platform-cli"
-echo "   или: cd \$PROJECT_ROOT/_core/platform-cli && ./install.sh"
+echo "   pipx install $PROJECT_ROOT/_core/platform-cli"
+echo "   или: cd $PROJECT_ROOT/_core/platform-cli && ./install.sh"
 exit 1
 PLATFORM_EOF
+
+    # Подставляем реальный PROJECT_ROOT
+    sed -i "s|__PROJECT_ROOT__|$PROJECT_ROOT|g" "$PLATFORM_SCRIPT"
 
     chmod +x "$PLATFORM_SCRIPT"
     ok "Platform CLI wrapper установлен в $PLATFORM_SCRIPT"

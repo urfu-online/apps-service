@@ -1,7 +1,7 @@
 """Компонент индикатора здоровья сервиса."""
 from nicegui import ui
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class HealthIndicator(ui.column):
@@ -61,7 +61,7 @@ class HealthIndicator(ui.column):
         self._status = status
         self._response_time = response_time
         self._error = error
-        self._last_checked = datetime.utcnow()
+        self._last_checked = datetime.now(timezone.utc)
         
         self._update_visual()
 

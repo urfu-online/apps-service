@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.security import get_current_user
 from app.services.discovery import ServiceManifest
@@ -52,7 +52,7 @@ async def list_service_backups(
             id=0,  # В упрощенной реализации ID не используется
             service_id=0,  # В упрощенной реализации ID не используется
             name=backup.get("backup_name", ""),
-            timestamp=datetime.fromisoformat(backup.get("timestamp", datetime.utcnow().isoformat())),
+            timestamp=datetime.fromisoformat(backup.get("timestamp", datetime.now(timezone.utc).isoformat())),
             size=None,  # В упрощенной реализации размер не отслеживается
             status="completed",  # В упрощенной реализации все бэкапы завершены
             reason=backup.get("reason", "manual")
@@ -85,7 +85,7 @@ async def create_backup(
         id=0,
         service_id=0,
         name=result["backup_name"],
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         size=None,
         status="completed",
         reason=request.reason
@@ -100,39 +100,76 @@ async def restore_backup(
 ):
     """Восстановление бэкапа сервиса"""
     from app.main import app
-    
+
     service = app.state.discovery.get_service(service_name)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
-    
-    # В упрощенной реализации просто возвращаем сообщение
-    # В реальной реализации здесь будет логика восстановления
+
+    # Получаем список бэкапов и находим нужный по индексу
+    backups = await app.state.backup.list_backups(service)
+    if request.backup_id < 0 or request.backup_id >= len(backups):
+        raise HTTPException(status_code=404, detail="Backup not found")
+
+    backup_data = backups[request.backup_id]
+    result = await app.state.backup.restore_service(service, backup_data["backup_name"])
+
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result.get("message", "Restore failed"))
+
     return {
-        "message": f"Restore scheduled for service {service_name}",
-        "backup_id": request.backup_id
+        "message": f"Restore completed for {service_name}",
+        "restored_files": result.get("restored_files", []),
+        "restored_databases": result.get("restored_databases", []),
+        "errors": result.get("errors", [])
     }
 
 
-@router.delete("/{backup_id}", response_model=dict)
+@router.delete("/{backup_name}", response_model=dict)
 async def delete_backup(
-    backup_id: int,
+    service_name: str,
+    backup_name: str,
     current_user = Depends(get_current_user)
 ):
     """Удаление бэкапа"""
-    # В упрощенной реализации просто возвращаем сообщение
-    return {
-        "message": f"Backup {backup_id} scheduled for deletion"
-    }
+    from app.main import app
+    import shutil
+
+    service = app.state.discovery.get_service(service_name)
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+
+    backup_path = app.state.backup.backup_base_path / service_name / backup_name
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Backup not found")
+
+    shutil.rmtree(backup_path)
+    return {"message": f"Backup {backup_name} deleted"}
 
 
-@router.get("/{backup_id}/info", response_model=dict)
+@router.get("/{backup_name}/info", response_model=dict)
 async def get_backup_info(
-    backup_id: int,
+    service_name: str,
+    backup_name: str,
     current_user = Depends(get_current_user)
 ):
     """Получение информации о бэкапе"""
-    # В упрощенной реализации просто возвращаем сообщение
-    return {
-        "message": f"Backup info for backup {backup_id}",
-        "backup_id": backup_id
-    }
+    from app.main import app
+    import aiofiles
+    import json
+
+    service = app.state.discovery.get_service(service_name)
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+
+    backup_path = app.state.backup.backup_base_path / service_name / backup_name
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Backup not found")
+
+    metadata_file = backup_path / "metadata.json"
+    if not metadata_file.exists():
+        raise HTTPException(status_code=404, detail="Backup metadata not found")
+
+    async with aiofiles.open(metadata_file, 'r') as f:
+        metadata = json.loads(await f.read())
+
+    return metadata

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
-from typing import Dict, List
+from typing import Dict, List, Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.security import get_current_user
 from app.services.discovery import ServiceManifest
@@ -14,7 +14,7 @@ class HealthResponse(BaseModel):
     is_healthy: bool
     response_time: float
     last_checked: str
-    error: str = None
+    error: Optional[str] = None
 
 
 class SystemHealthResponse(BaseModel):
@@ -61,7 +61,7 @@ async def get_system_health(
     return SystemHealthResponse(
         overall_status="healthy" if overall_healthy else "unhealthy",
         services=health_results,
-        timestamp=datetime.utcnow().isoformat()
+        timestamp=datetime.now(timezone.utc).isoformat()
     )
 
 

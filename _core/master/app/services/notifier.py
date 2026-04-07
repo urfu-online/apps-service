@@ -1,6 +1,7 @@
 from typing import Optional, List
+import html
 import aiohttp
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 # Настройка логирования
@@ -32,7 +33,7 @@ class TelegramNotifier:
             logger.warning("No chat IDs configured for Telegram notifications")
             return False
         
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         full_message = f"<b>🖥 Platform Alert</b>\n<i>{timestamp}</i>\n\n{message}"
         
         success = True
@@ -79,10 +80,10 @@ class TelegramNotifier:
         message = f"{emoji} <b>{service_name}</b>: {status}"
         
         if details:
-            message += f"\n<pre>{details}</pre>"
-        
+            message += f"\n<pre>{html.escape(details)}</pre>"
+
         await self.send(message)
-    
+
     async def send_deployment_notification(
         self,
         service_name: str,
@@ -100,10 +101,10 @@ class TelegramNotifier:
         message = f"{status_emoji} <b>Deployment</b>: {service_name} v{version}"
         
         if details:
-            message += f"\n<pre>{details}</pre>"
-        
+            message += f"\n<pre>{html.escape(details)}</pre>"
+
         await self.send(message)
-    
+
     async def send_backup_notification(
         self,
         service_name: str,
@@ -121,6 +122,6 @@ class TelegramNotifier:
         message = f"{status_emoji} <b>Backup</b>: {service_name} ({backup_name})"
         
         if details:
-            message += f"\n<pre>{details}</pre>"
-        
+            message += f"\n<pre>{html.escape(details)}</pre>"
+
         await self.send(message)

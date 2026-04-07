@@ -4,7 +4,6 @@ from typing import Optional, Dict, Any
 import logging
 import docker
 from docker.errors import NotFound, APIError
-import aiodocker
 
 from app.services.discovery import ServiceManifest
 from app.services.notifier import TelegramNotifier
@@ -15,10 +14,9 @@ logger = logging.getLogger(__name__)
 
 class DockerManager:
     """Управление Docker контейнерами и compose проектами"""
-    
+
     def __init__(self, notifier: TelegramNotifier):
         self.client = docker.from_env()
-        self.async_client = aiodocker.Docker()
         self.notifier = notifier
     
     async def deploy_service(

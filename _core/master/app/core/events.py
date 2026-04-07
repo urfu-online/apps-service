@@ -2,7 +2,7 @@
 from typing import Callable, Dict, List, Any, Optional
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class EventBus:
 
     async def emit(self, event_type: str, data: Any = None) -> None:
         """Эмитирует событие и вызывает всех подписчиков."""
-        event = Event(type=event_type, data=data, timestamp=datetime.utcnow())
+        event = Event(type=event_type, data=data, timestamp=datetime.now(timezone.utc))
         self._history.append(event)
         if len(self._history) > self._max_history:
             self._history.pop(0)

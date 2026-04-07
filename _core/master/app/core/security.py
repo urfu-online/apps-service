@@ -76,12 +76,11 @@ class KeycloakAuthProvider(AuthProvider):
 class BuiltInAuthProvider(AuthProvider):
     async def authenticate(self, username: str, password: str) -> Optional[Dict[str, Any]]:
         from app.models.user import User
-        from app.core.database import get_db
+        from app.core.database import SessionLocal
 
-        db_gen = get_db()
-        db: Session = next(db_gen)
+        db = SessionLocal()
         try:
-            user = db.query(User).filter(User.username == username, User.is_active.is_(True)).first()
+            user = db.query(User).filter(User.username == username, User.is_active == True).first()
             if not user or not user.check_password(password):
                 return None
             return user.to_dict()
@@ -93,17 +92,16 @@ class BuiltInAuthProvider(AuthProvider):
 
     async def get_current_user(self, token: str) -> Optional[Dict[str, Any]]:
         from app.models.user import User
-        from app.core.database import get_db
+        from app.core.database import SessionLocal
 
         try:
             user_id = int(token)
         except ValueError:
             return None
 
-        db_gen = get_db()
-        db: Session = next(db_gen)
+        db = SessionLocal()
         try:
-            user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+            user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
             return user.to_dict() if user else None
         except Exception as e:
             logger.error(f"Ошибка получения пользователя: {e}")
@@ -113,10 +111,9 @@ class BuiltInAuthProvider(AuthProvider):
 
     async def create_user(self, username: str, password: str, roles: List[str]) -> Optional[Dict[str, Any]]:
         from app.models.user import User
-        from app.core.database import get_db
+        from app.core.database import SessionLocal
 
-        db_gen = get_db()
-        db: Session = next(db_gen)
+        db = SessionLocal()
         try:
             if db.query(User).filter(User.username == username).first():
                 logger.warning(f"Пользователь {username} уже существует.")

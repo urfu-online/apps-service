@@ -88,7 +88,7 @@ class LogsPage:
     def _get_since_time(self, range_key: str) -> datetime:
         """Вычисление времени начала периода."""
         delta = self.TIME_RANGES.get(range_key, timedelta(hours=1))
-        return datetime.utcnow() - delta
+        return datetime.now(timezone.utc) - delta
 
     async def _load_logs(self):
         """Загрузка логов."""

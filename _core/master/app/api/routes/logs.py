@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional
 from pydantic import BaseModel
+from datetime import datetime, timezone
 
 from app.core.security import get_current_user
 from app.services.discovery import ServiceManifest
@@ -89,8 +90,7 @@ async def export_service_logs(
         raise HTTPException(status_code=404, detail="Service not found")
     
     # Генерируем имя файла для экспорта
-    from datetime import datetime
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     export_filename = f"{service_name}_logs_{timestamp}.txt"
     
     # Здесь должна быть логика экспорта
