@@ -29,7 +29,10 @@
       "Bash(print)",
       "Bash('/api/services/')",
       "Bash('/api/users/')",
-      "Bash(eof)"
+      "Bash(eof)",
+      "Bash(docker *)",
+      "Bash(docker compose version)",
+      "Bash(docker network *)"
     ]
   },
   "$version": 3

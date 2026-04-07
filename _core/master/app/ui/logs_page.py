@@ -47,13 +47,13 @@ class LogsPage:
 
                 # Период времени
                 self.time_range_select = ui.select(
-                    options=[
-                        {'label': '1 час', 'value': '1h'},
-                        {'label': '6 часов', 'value': '6h'},
-                        {'label': '12 часов', 'value': '12h'},
-                        {'label': '24 часа', 'value': '24h'},
-                        {'label': '7 дней', 'value': '7d'},
-                    ],
+                    options={
+                        '1h': '1 час',
+                        '6h': '6 часов',
+                        '12h': '12 часов',
+                        '24h': '24 часа',
+                        '7d': '7 дней',
+                    },
                     value='1h',
                     label='Период',
                     on_change=lambda _: self._load_logs()
