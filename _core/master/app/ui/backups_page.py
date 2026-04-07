@@ -1,12 +1,13 @@
 """Страница управления бэкапами."""
 from nicegui import ui
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict
 
 from app.ui.components.base import (
     create_header,
     create_empty_state,
 )
+from app.utils.i18n import natural_time
 
 
 class BackupsPage:
@@ -137,9 +138,10 @@ class BackupsPage:
         if not timestamp:
             return '—'
         try:
-            # Пытаемся распарсить ISO формат
             dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            return dt.strftime('%d.%m.%Y %H:%M')
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return natural_time(dt)
         except (ValueError, AttributeError):
             return str(timestamp)
 
