@@ -26,6 +26,7 @@ class RoutingConfigModel(BaseModel):
     port: Optional[int] = None
     strip_prefix: bool = True
     internal_port: int = 8000
+    container_name: Optional[str] = None  # Имя контейнера для прямого проксирования
 
 
 class HealthConfigModel(BaseModel):
