@@ -7,6 +7,7 @@ from app.ui.components.base import (
     create_stat_card,
     create_status_chip,
     create_icon_button,
+    create_empty_state,
 )
 
 
@@ -33,10 +34,10 @@ async def render_main_page():
         create_stat_card('Остановлено', str(stopped), '🔴', 'negative')
         create_stat_card('Публичных', str(public), '🌍', 'info')
 
-    # Навигация по сервисам
+    # Таблица сервисов с пагинацией (вместо карточек — избегаем WebSocket overflow)
     with ui.column().classes('w-full px-6 mt-6'):
         ui.label('Сервисы').classes('text-h6 font-medium mb-3')
-        
+
         with ui.tabs().classes('w-full') as tabs:
             tab_all = ui.tab('Все')
             tab_public = ui.tab('Публичные')
@@ -44,116 +45,123 @@ async def render_main_page():
 
         with ui.tab_panels(tabs, value=tab_all).classes('w-full'):
             with ui.tab_panel(tab_all):
-                await _render_services_list(services.values())
+                _render_services_table(services.values())
 
             with ui.tab_panel(tab_public):
                 public_services = [s for s in services.values() if s.visibility == "public"]
-                await _render_services_list(public_services)
+                _render_services_table(public_services)
 
             with ui.tab_panel(tab_internal):
                 internal_services = [s for s in services.values() if s.visibility == "internal"]
-                await _render_services_list(internal_services)
+                _render_services_table(internal_services)
 
 
-async def _render_services_list(services):
-    """Рендер списка сервисов в виде карточек."""
+def _render_services_table(services):
+    """Рендер таблицы сервисов с пагинацией (эффективно для WebSocket)."""
     if not services:
-        _render_empty_state()
+        create_empty_state(
+            icon='📭',
+            message='Нет сервисов для отображения',
+            action_label='Обновить',
+            on_action=lambda: ui.navigate.reload()
+        )
         return
 
-    with ui.column().classes('w-full gap-3'):
-        for service in services:
-            await _render_service_row(service)
+    columns = [
+        {'name': 'status', 'label': '', 'field': 'status', 'align': 'center', 'style': 'width: 40px'},
+        {'name': 'name', 'label': 'Название', 'field': 'name', 'align': 'left'},
+        {'name': 'version', 'label': 'Версия', 'field': 'version', 'align': 'center', 'style': 'width: 80px'},
+        {'name': 'routing', 'label': 'Маршруты', 'field': 'routing', 'align': 'left'},
+        {'name': 'visibility', 'label': 'Тип', 'field': 'visibility', 'align': 'center', 'style': 'width: 100px'},
+        {'name': 'actions', 'label': '', 'field': 'actions', 'align': 'center', 'style': 'width: 120px'},
+    ]
+
+    rows = []
+    for service in services:
+        rows.append({
+            'name': service.display_name or service.name,
+            'version': service.version or '—',
+            'visibility': service.visibility,
+            'routing': _format_routing(service.routing),
+            'service_name': service.name,
+            'status': service.status,
+        })
+
+    table = ui.table(
+        columns=columns,
+        rows=rows,
+        row_key='name'
+    ).classes('w-full').props('flat bordered').props(
+        'pagination-label="Строк на странице" pagination-rows-per-page-options="5,10,20,50" '
+        'pagination-rows-per-page=10'
+    )
+
+    # Статус бейдж
+    table.add_slot('body-cell-status', '''
+        <q-td :props="props">
+            <q-badge :color="props.row.status === 'running' ? 'positive' :
+                           props.row.status === 'stopped' ? 'negative' :
+                           props.row.status === 'partial' ? 'warning' : 'grey'">
+                {{ props.row.status === 'running' ? '▶' :
+                   props.row.status === 'stopped' ? '■' :
+                   props.row.status === 'partial' ? '●' : '?' }}
+            </q-badge>
+        </q-td>
+    ''')
+
+    # Visibility бейдж
+    table.add_slot('body-cell-visibility', '''
+        <q-td :props="props">
+            <q-badge outline :color="props.row.visibility === 'public' ? 'info' : 'secondary'">
+                {{ props.row.visibility === 'public' ? '🌍 Публичный' : '🔒 Внутренний' }}
+            </q-badge>
+        </q-td>
+    ''')
+
+    # Кнопки действий
+    table.add_slot('body-cell-actions', '''
+        <q-td :props="props">
+            <div class="row q-gutter-xs justify-center">
+                <q-btn flat dense round icon="visibility"
+                       @click="$parent.$emit('view', props.row)"
+                       color="primary" />
+                <q-btn flat dense round icon="refresh"
+                       @click="$parent.$emit('restart', props.row)" />
+                <q-btn flat dense round :icon="props.row.status === 'running' ? 'stop' : 'play_arrow'"
+                       @click="$parent.$emit('toggle', props.row)"
+                       :color="props.row.status === 'running' ? 'negative' : 'positive'" />
+            </div>
+        </q-td>
+    ''')
+
+    table.on('view', lambda e: ui.navigate.to(f'/services/{e.args["service_name"]}'))
+    table.on('restart', lambda e: asyncio.ensure_future(_handle_action(e.args["service_name"], 'restart')))
+    table.on('toggle', lambda e: _handle_toggle(e.args))
 
 
-async def _render_service_row(service):
-    """Рендер строки сервиса."""
-    status_colors = {
-        'running': 'bg-positive/10 text-positive',
-        'stopped': 'bg-negative/10 text-negative',
-        'partial': 'bg-warning/10 text-warning',
-        'unknown': 'bg-grey/10 text-grey',
-    }
-    
-    status_icon = {
-        'running': 'play_circle',
-        'stopped': 'stop_circle',
-        'partial': 'remove_circle',
-        'unknown': 'help_circle',
-    }.get(service.status, 'help_circle')
-
-    with ui.card().classes('w-full p-4').props('flat bordered'):
-        with ui.row().classes('w-full items-center'):
-            # Индикатор статуса
-            with ui.column().classes('items-center justify-center w-12'):
-                ui.icon(status_icon).classes(f'text-2xl {status_colors.get(service.status, "")}')
-
-            # Информация о сервисе
-            with ui.column().classes('flex-1 ml-2'):
-                ui.label(service.display_name or service.name).classes('text-subtitle1 font-medium')
-                
-                # Маршруты
-                routing_info = _format_routing(service.routing)
-                if routing_info:
-                    ui.label(routing_info).classes('text-caption text-grey-7')
-
-            # Видимость
-            create_status_chip('public' if service.visibility == 'public' else 'internal')
-
-            # Кнопки действий
-            with ui.row().classes('gap-1'):
-                create_icon_button(
-                    'visibility',
-                    lambda s=service: ui.navigate.to(f'/services/{s.name}'),
-                    tooltip='Просмотр'
-                )
-                create_icon_button(
-                    'refresh',
-                    lambda s=service: asyncio.ensure_future(_handle_action(s.name, 'restart')),
-                    tooltip='Перезапустить'
-                )
-                if service.status == 'running':
-                    create_icon_button(
-                        'stop_circle',
-                        lambda s=service: asyncio.ensure_future(_handle_action(s.name, 'stop')),
-                        color='negative',
-                        tooltip='Остановить'
-                    )
-                else:
-                    create_icon_button(
-                        'play_circle',
-                        lambda s=service: asyncio.ensure_future(_handle_action(s.name, 'deploy')),
-                        color='positive',
-                        tooltip='Запустить'
-                    )
+def _handle_toggle(args: dict):
+    """Обработка кнопки запуска/остановки."""
+    service_name = args["service_name"]
+    status = args.get("status", "unknown")
+    action = 'deploy' if status != 'running' else 'stop'
+    asyncio.ensure_future(_handle_action(service_name, action))
 
 
 def _format_routing(routing) -> str:
     """Форматирование информации о маршрутизации."""
     if not routing:
-        return ""
-    
+        return "—"
+
     parts = []
     for route in routing:
         if route.type == 'domain':
-            parts.append(f"{route.domain}")
+            parts.append(f"🌐 {route.domain}")
         elif route.type == 'subfolder':
-            parts.append(f"{route.base_domain}{route.path}")
+            parts.append(f"📁 {route.base_domain}{route.path}")
         elif route.type == 'port':
-            parts.append(f":{route.port}")
-    
-    return " • ".join(parts) if parts else ""
+            parts.append(f"🔌 :{route.port}")
 
-
-def _render_empty_state():
-    """Рендер состояния 'нет сервисов'."""
-    from app.ui.components.base import create_empty_state
-    create_empty_state(
-        icon='📭',
-        message='Нет сервисов для отображения',
-        action_label='Обновить',
-        on_action=lambda: ui.navigate.reload()
-    )
+    return " • ".join(parts) if parts else "—"
 
 
 async def _handle_action(service_name: str, action: str):

@@ -72,7 +72,10 @@ class ServicesPage:
             columns=columns,
             rows=rows,
             row_key='name'
-        ).classes('w-full px-6 mt-4').props('flat bordered')
+        ).classes('w-full px-6 mt-4').props('flat bordered').props(
+            'pagination-label="Строк на странице" pagination-rows-per-page-options="5,10,20,50,100" '
+            'pagination-rows-per-page=10'
+        )
 
         self._add_action_slots()
         self._add_table_events()
