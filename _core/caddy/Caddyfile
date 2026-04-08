@@ -1,6 +1,7 @@
 {
     email admin@urfu.online
     admin 0.0.0.0:2019
+    # Для локальной разработки: отключаем авто-HTTPS (нет публичного домена)
     auto_https disable_redirects
 
     # Access log (по умолчанию)
@@ -21,5 +22,12 @@
 # Импорт глобальных сниппетов
 import /etc/caddy/snippets/*.caddy
 
-# Импорт всех конфигураций сервисов
+# Локальная разработка — HTTP без HTTPS
+http://localhost {
+    import common_headers
+    # Импорт сгенерированных маршрутов для localhost
+    import /etc/caddy/conf.d/_subfolder_localhost.caddy.inc
+}
+
+# Импорт всех конфигураций сервисов (домены, порты)
 import /etc/caddy/conf.d/*.caddy

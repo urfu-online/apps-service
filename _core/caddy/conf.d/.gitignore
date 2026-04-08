@@ -1,4 +1,5 @@
-# Игнорируем всё кроме localhost-конфига для локальной разработки
+# Игнорируем всё кроме localhost-конфигов для локальной разработки
 *
 !_subfolder_localhost.caddy
+!_subfolder_localhost.caddy.inc
 !localhost.caddy
