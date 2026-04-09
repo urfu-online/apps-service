@@ -1,5 +1,5 @@
-site_name: Apps Service Platform
-site_description: Единая платформа для развёртывания, управления и мониторинга сервисов на Docker
+site_name: apps-service
+site_description: Управление сервисами на Docker через манифесты
 site_url: https://urfu-online.github.io/apps-service
 repo_url: https://github.com/urfu-online/apps-service
 repo_name: urfu-online/apps-service
@@ -65,22 +65,23 @@ markdown_extensions:
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
 
 nav:
-  - Главная: index.md
+  - index.md
   - Начало работы:
-      - Установка: getting-started/install.md
-      - Первый сервис: getting-started/first-service.md
-      - CLI и UI: getting-started/cli-ui.md
+      - getting-started/install.md
+      - getting-started/first-service.md
+      - getting-started/cli-ui.md
   - Пользователь:
-      - Управление сервисами: user-guide/services.md
-      - Бэкапы: user-guide/backup.md
-      - Мониторинг: user-guide/monitoring.md
+      - user-guide/services.md
+      - user-guide/backup.md
+      - user-guide/monitoring.md
   - Разработчикам:
-      - Руководство: development.md
-      - Тестирование: development/testing.md
-  - Архитектура: architecture.md
-  - API: api.md
-  - Примеры: examples.md
-  - Лучшие практики: best-practices.md
+      - development.md
+      - development/testing.md
+  - Справочник:
+      - architecture.md
+      - api.md
+      - examples.md
+      - best-practices.md
 
 plugins:
   - search:

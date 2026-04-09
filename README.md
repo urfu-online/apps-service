@@ -1,166 +1,152 @@
-# Apps Service Platform
+# apps-service
 
-> Единая платформа для развёртывания, управления и мониторинга сервисов на Docker.
+Платформа управления сервисами на Docker. Один манифест на сервис — всё остальное автоматически.
 
-<div align="center">
+## Как это работает
 
-[Документация](https://urfu-online.github.io/apps-service) · [Quick Start](#-quick-start-5-минут) · [Architecture](docs/architecture/) · [Contributing](#-contributing)
-
-</div>
-
----
-
-## 🧩 Что это
-
-Платформа превращает набор Docker-контейнеров в **управляемую систему**:
-
-| Без платформы | С платформой |
-|---|---|
-| Ручной `docker compose` для каждого сервиса | Один CLI/UI для всех сервисов |
-| Маршруты в голове или разбросаны по конфигам | Автогенерация роутинга из `service.yml` |
-| «А работает ли оно?» | Health checks + Telegram-уведомления |
-| Бэкапы «когда вспомню» | Расписание + Restic + ротация |
-| Добавил сервис — правил Caddy, Nginx, DNS | Положил `service.yml` — он появился в UI |
-
-## 🏗 Архитектура
+Положите `service.yml` и `docker-compose.yml` в `services/public/my-app/`:
 
 ```
-┌─────────────────────────────────────────────┐
-│              Caddy (reverse proxy)           │
-│         SSL · routing · rate limit           │
-└────────────────────┬────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────┐
-│          Master Service (FastAPI)            │
-│  ┌──────────┬──────────┬──────────┐         │
-│  │ Discovery│  Caddy   │  Docker  │         │
-│  │          │ Manager  │ Manager  │         │
-│  └──────────┴──────────┴──────────┘         │
-│  ┌──────────┬──────────┬──────────┐         │
-│  │  Health  │  Backup  │   Logs   │         │
-│  │ Checker  │ Manager  │ Manager  │         │
-│  └──────────┴──────────┴──────────┘         │
-└────────────────────┬────────────────────────┘
-                     │
-    ┌────────────────┼────────────────┐
-    ▼                ▼                ▼
- services/       services/      _core/backup/
-  public/        internal/       (Restic)
+services/
+  public/
+    my-app/
+      service.yml          # имя, роутинг, health check, backup
+      docker-compose.yml   # контейнеры
 ```
 
-**5 компонентов:**
+При запуске Master Service:
 
-| Компонент | Что делает | Стек |
-|---|---|---|
-| **Master Service** | Управление, UI, API, оркестрация | Python, FastAPI, NiceGUI |
-| **Caddy** | Reverse proxy, SSL, роутинг | Caddy 2 |
-| **Docker** | Контейнеризация сервисов | Docker Compose |
-| **Platform CLI** | Управление из терминала | Python, Typer |
-| **Backup** | Restic-бэкапы по расписанию | Restic, cron |
+1. Сканирует `services/`, читает манифесты
+2. Генерирует конфиг Caddy из шаблонов — домен, подпапка или порт
+3. Отправляет конфиг в Caddy через API
+4. Деплоит контейнеры через Docker Compose
+5. Запускает health check каждые 30s
+6. Включает бэкапы по расписанию если настроены
 
-## 🚀 Quick Start (5 минут)
+Изменили `service.yml` — всё перегенерировалось само. Файловый вотчер работает в реальном времени.
 
-### 1. Клонировать
+## Архитектура
+
+```
+Caddy (reverse proxy, SSL)
+  │
+  │ proxy
+  ▼
+Master Service ──────────┐
+  FastAPI + NiceGUI       │
+  ├─ ServiceDiscovery     │ file watch
+  ├─ CaddyManager         │── generates .caddy configs
+  ├─ DockerManager        │── docker compose up/down
+  ├─ HealthChecker        │── HTTP probes every 30s
+  ├─ BackupManager        │── restic + pg_dump/mysqldump
+  └─ LogManager           │── container logs
+                          │
+    services/public/      │
+    services/internal/    │◄── service.yml + docker-compose.yml
+```
+
+Два core-контейнера — `master` и `caddy`. Сервисы — сколько угодно, каждый со своим `docker-compose.yml`. Всё на одной docker сети `platform_network`.
+
+## Установка
 
 ```bash
 git clone https://github.com/urfu-online/apps-service.git
 cd apps-service
-```
-
-### 2. Установить
-
-```bash
 ./install.sh
 ```
 
-Скрипт спросит тип окружения (`local` / `server`) и установит CLI `ops`.
+Скрипт создаст `.ops-config.yml` и установит CLI `ops`.
 
-### 3. Добавить сервис
-
-```bash
-# Создать шаблон
-platform new my-app public
-
-# Или просто положить service.yml + docker-compose.yml
-# в services/public/my-app/
-```
-
-### 4. Запустить
+## Использование
 
 ```bash
-./restart_core.sh --build    # master + caddy
-ops up my-app                # ваш сервис
-ops list                     # увидеть всё
+# Добавить сервис
+mkdir -p services/public/my-app
+# положить service.yml + docker-compose.yml
+
+# Запустить core
+./restart_core.sh --build
+
+# Запустить сервис
+ops up my-app
+
+# Посмотреть что работает
+ops list
 ```
 
-Готово. Сервис доступен через Caddy, отображается в UI, мониторится и бэкапится.
+## Манифест
 
-## 📋 Возможности
+```yaml
+name: my-app
+version: "1.0.0"
+type: docker-compose
+visibility: public
 
-- 🔍 **Auto-discovery** — сканирует `services/`, читает `service.yml`, обновляет роутинг
-- 🌐 **Авто-роутинг** — домен, подпапка или порт — настраивается в манифесте
-- 🔄 **Hot reload** — изменил `service.yml` → Caddy перегенерировался сам
-- 💾 **Бэкапы** — файлы + БД (PostgreSQL/MySQL), Restic, ротация, Telegram
-- 📊 **Мониторинг** — health checks каждые 30s, логи, статус в UI
-- 🎛 **Dual auth** — встроенная аутентификация или Keycloak (OAuth2)
-- 📱 **Telegram** — уведомления о деплое, сбоях, бэкапах
-- 🛠 **CLI + UI** — `ops` для терминала, NiceGUI для браузера
+routing:
+  - type: domain
+    domain: myapp.example.com
+    internal_port: 80
 
-## 📁 Структура репозитория
+health:
+  enabled: true
+  endpoint: /
+  interval: 30s
+
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+```
+
+Ничего лишнего. Платформа берёт из манифеста имя, маршрут, параметры health check и расписание бэкапов. Остальное — в `docker-compose.yml`, как обычно.
+
+## Local override
+
+Для разработки — `service.local.yml` рядом с `service.yml`. Мержится поверх, в `.gitignore` не коммитится. Меняет только то, что отличается — порт, интервал проверок, что угодно.
+
+Аналогично — `.ops-config.local.yml` для настроек платформы.
+
+## Структура
 
 ```
 .
-├── install.sh              # Главный установщик
-├── restart_core.sh         # Перезапуск core-сервисов
-├── .ops-config.yml         # Конфиг платформы
-├── .ops-config.local.yml   # Локальный override (не коммитится)
+├── install.sh                  # установка, генерирует .ops-config.yml
+├── restart_core.sh             # docker compose для master + caddy
+├── .ops-config.yml             # конфиг (tracked, серверные значения)
+├── .ops-config.local.yml       # локальный override (gitignored)
 │
 ├── _core/
-│   ├── master/             # Master Service (FastAPI + NiceGUI)
-│   ├── caddy/              # Caddy reverse proxy
-│   ├── backup/             # Restic backup service
-│   └── platform-cli/       # Platform CLI (Python/Typer)
+│   ├── master/                 # Master Service — FastAPI + NiceGUI
+│   ├── caddy/                  # Caddy reverse proxy
+│   ├── backup/                 # Restic backup
+│   └── platform-cli/           # Platform CLI (Python/Typer)
 │
-├── services/               # Сервисы (gitignored)
-│   ├── public/             #   публичные
-│   └── internal/           #   внутренние
+├── services/                   # сервисы (gitignored)
+│   ├── public/
+│   └── internal/
 │
-├── shared/templates/       # Шаблоны для новых сервисов
-├── docs/                   # Документация (MkDocs)
-└── infra/test-env/         # DinD тестовое окружение
+├── shared/templates/           # шаблоны для platform new
+├── docs/                       # документация
+└── infra/test-env/             # DinD для тестирования
 ```
 
-## 📖 Документация
+## Документация
 
-| Для кого | Где |
-|---|---|
-| **Быстрый старт** | Этот README 👆 |
-| **Полная документация** | [docs/](docs/) — MkDocs сайт |
-| **API Reference** | `http://localhost:8000/docs` (после запуска) |
-| **Примеры сервисов** | [docs/examples/](docs/examples/) |
-| **Разработчикам** | [docs/development.md](docs/development.md) |
+- [Установка](docs/getting-started/install.md)
+- [Первый сервис](docs/getting-started/first-service.md)
+- [Управление сервисами](docs/user-guide/services.md)
+- [Бэкапы](docs/user-guide/backup.md)
+- [Мониторинг](docs/user-guide/monitoring.md)
+- [Архитектура](docs/architecture.md)
+- [Разработка](docs/development.md)
+- [Примеры манифестов](docs/examples.md)
 
-## 🧪 Тестирование
+Полная документация — [MkDocs сайт](https://urfu-online.github.io/apps-service/) (собирается `mkdocs build`).
+
+## Тестирование
 
 ```bash
-# Быстро — интеграционные тесты
 cd _core/master
 pytest tests/integration/test_full_deploy_cycle.py -v
-
-# Полностью — DinD симуляция сервера
-cd infra/test-env
-docker compose up -d
-docker compose exec test-env ./test_full_cycle.sh
 ```
 
-## 🤝 Contributing
-
-1. Форк → ветка (`feat/...`, `fix/...`, `chore/...`)
-2. Коммиты → пуш → PR в `main`
-3. Код-ревью → мерж
-
-См. [docs/development.md](docs/development.md) для деталей.
-
-## 📄 License
-
-Проект разработан командой [UrFu Online](https://github.com/urfu-online).
+Подробнее — [docs/development/testing.md](docs/development/testing.md).

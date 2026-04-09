@@ -1,19 +1,25 @@
-# Документация Apps Service Platform
+# Документация
 
-Добро пожаловать в полную документацию платформы — единого решения для развёртывания, управления и мониторинга сервисов на Docker.
+## Начало работы
 
-## С чего начать
+- [Установка](getting-started/install.md) — `./install.sh`, что происходит
+- [Первый сервис](getting-started/first-service.md) — service.yml + docker-compose.yml
+- [CLI и UI](getting-started/cli-ui.md) — ops, platform, NiceGUI
 
-| Если вы... | Читайте |
-|---|---|
-| Только пришли и хотите попробовать | [Установка](getting-started/install.md) |
-| Добавляете первый сервис | [Первый сервис](getting-started/first-service.md) |
-| Управляете платформой ежедневно | [Управление сервисами](user-guide/services.md) |
-| Разрабатываете и контрибьютите | [Руководство разработчика](development.md) |
-| Изучаете как всё устроено внутри | [Архитектура](architecture.md) |
+## Пользователю
 
-## Быстрые ссылки
+- [Управление сервисами](user-guide/services.md) — создание, деплой, роутинг
+- [Бэкапы](user-guide/backup.md) — restic, расписание, restore
+- [Мониторинг](user-guide/monitoring.md) — health checks, логи, алерты
 
-- **GitHub** → [urfu-online/apps-service](https://github.com/urfu-online/apps-service)
-- **API Docs** → `http://localhost:8000/docs` (после запуска Master)
-- **CLI Reference** → `platform --help`
+## Разработчику
+
+- [Руководство](development.md) — Poetry, Docker, Makefile
+- [Тестирование](development/testing.md) — 3 уровня, mocks, DinD
+
+## Справочник
+
+- [Архитектура](architecture.md) — компоненты, потоки данных, стек
+- [API](api.md) — эндпоинты, аутентификация
+- [Примеры](examples.md) — манифесты для разных типов сервисов
+- [Лучшие практики](best-practices.md) — структура, безопасность, мониторинг
