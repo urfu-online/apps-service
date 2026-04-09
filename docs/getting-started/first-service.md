@@ -72,10 +72,10 @@ networks:
 ./restart_core.sh --build
 
 # Запустить сервис
-ops up my-app
+platform deploy my-app
 
 # Проверить
-ops list
+platform list
 ```
 
 Сервис появится:

@@ -54,24 +54,13 @@ sudo apt install docker-compose-plugin
 
 1. **`.ops-config.yml`** — конфиг платформы (tracked в git, серверные значения)
 2. **`.ops-config.local.yml`** — ваш локальный override (gitignored, не коммитится)
-3. **`ops`** — CLI-утилита для управления сервисами
+3. Установит CLI `platform` (опционально, через pipx)
 
 ### Проверка
 
 ```bash
-ops list          # Увидеть все сервисы
+platform list       # Увидеть все сервисы
 ```
-
-## Platform CLI (опционально)
-
-`ops` — простой bash-враппер. Для полноценного CLI с командами `platform new`, `platform deploy` и т.д.:
-
-```bash
-cd _core/platform-cli
-./install.sh
-```
-
-Требуется [pipx](https://pypa.github.io/pipx/).
 
 ## Server vs Local
 

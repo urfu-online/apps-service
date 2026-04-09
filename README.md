@@ -78,7 +78,7 @@ cd apps-service
 ./restart_core.sh --build
 ```
 
-Добавить сервис — создать `services/public/my-app/service.yml` + `docker-compose.yml`, затем `ops up my-app`.
+Добавить сервис — создать `services/public/my-app/service.yml` + `docker-compose.yml`, затем `platform deploy my-app`.
 
 ## Манифест
 

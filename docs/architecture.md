@@ -253,20 +253,15 @@ install.sh                       # Скрипт установки
 - **Восстановление**: автоматическое восстановление из бэкапа при сбое
 - **Уведомления**: Telegram-бот информирует о сбоях
 
-## 8. Управление сервисами
+## 8. Управление
 
-Платформа предоставляет два CLI:
+CLI — `platform` (Python/Typer). Веб — NiceGUI на порту 8001.
 
-**`ops`** (bash, устанавливается через `./install.sh`):
-- `ops list` — список сервисов
-- `ops up/down <svc>` — запуск/остановка
-- `ops logs <svc>` — логи
-- `ops reload` — перезагрузка Caddy
-- `ops ui` — lazydocker (если установлен в системе)
-
-**`platform`** (Python/Typer, устанавливается через `pipx`):
-- `platform list`, `deploy`, `stop`, `restart`, `logs`, `status`, `backup`, `reload`, `info`, `new`
-
-Веб-интерфейс — NiceGUI на порту 8001 (маппинг `8001:8000`).
+```bash
+platform list            # сервисы со статусом
+platform deploy my-app   # деплой
+platform logs my-app     # логи
+platform status          # статус + метрики
+```
 
 Подробнее — [CLI и UI](getting-started/cli-ui.md).

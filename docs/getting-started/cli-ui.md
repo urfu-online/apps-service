@@ -1,27 +1,10 @@
 # CLI и UI
 
-Платформа предоставляет два интерфейса управления: терминальный (`ops` и `platform`) и веб (NiceGUI).
-
-## Ops CLI
-
-Bash-скрипт, устанавливается через `./install.sh`. Простые команды без зависимостей.
-
-| Команда | Описание |
-|---|---|
-| `ops list` | Все сервисы со статусом |
-| `ops up <svc>` | Запустить (`docker compose up -d`) |
-| `ops down <svc>` | Остановить |
-| `ops logs <svc>` | Логи |
-| `ops logs <svc> -f` | Follow mode |
-| `ops reload` | Перезагрузить Caddy config |
-| `ops ui` | lazydocker для всех сервисов (нужен lazydocker в PATH) |
-| `ops ui <svc>` | lazydocker для одного |
-
-Сокращение: `ops master` = `ops up master`.
+Платформа предоставляет терминальный CLI (`platform`) и веб-интерфейс (NiceGUI).
 
 ## Platform CLI
 
-Полноценный Python CLI на Typer. Устанавливается отдельно:
+Python CLI на Typer. Установка:
 
 ```bash
 cd _core/platform-cli && ./install.sh
@@ -39,8 +22,6 @@ cd _core/platform-cli && ./install.sh
 | `platform backup <svc>` | Запустить бэкап (через Master API) |
 | `platform reload` | Перезагрузить Caddy |
 | `platform info` | Общая информация о платформе |
-
-`platform` требует запущенный Master Service для команд backup и reload. `ops` работает автономно через docker compose.
 
 ## Веб-интерфейс (NiceGUI)
 
