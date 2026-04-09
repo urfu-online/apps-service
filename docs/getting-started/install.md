@@ -60,7 +60,6 @@ sudo apt install docker-compose-plugin
 
 ```bash
 ops list          # Увидеть все сервисы
-ops ui            # lazydocker — визуальный мониторинг
 ```
 
 ## Platform CLI (опционально)

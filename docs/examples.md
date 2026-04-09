@@ -1,6 +1,11 @@
-# Примеры использования
+# Примеры манифестов
 
-## Примеры конфигураций различных типов сервисов
+!!! note "Поддерживаемые типы сервисов"
+    Реализован только `type: docker-compose`. Типы `static`, `docker`, `external` объявлены в модели, но обработчики деплоя для них не написаны.
+
+    Поле `logging` в `service.yml` не обрабатывается — Loki-интеграция не реализована.
+
+## Конфигурации сервисов
 
 ### 1. Статический сайт
 
@@ -27,8 +32,6 @@ backup:
   paths:
     - ./public
 
-logging:
-  driver: loki
 ```
 
 Структура файлов:
@@ -77,8 +80,6 @@ backup:
       container: db
       database: users
 
-logging:
-  driver: loki
   labels:
     - service
     - level
@@ -132,8 +133,6 @@ resources:
 backup:
   enabled: false
 
-logging:
-  driver: loki
 
 dependencies:
   external:
@@ -182,8 +181,6 @@ backup:
       container: postgres
       database: blog
 
-logging:
-  driver: loki
 
 dependencies:
   services:
@@ -231,8 +228,6 @@ backup:
   paths:
     - ./reports
 
-logging:
-  driver: loki
 
 dependencies:
   services:
@@ -290,8 +285,6 @@ backup:
   schedule: "0 2 * * *"
   retention: 7
 
-logging:
-  driver: loki
 ```
 
 ### Внутренний и внешний доступ к одному сервису
@@ -326,8 +319,6 @@ backup:
   schedule: "0 2 * * *"
   retention: 14
 
-logging:
-  driver: loki
 ```
 
 ## Примеры конфигурации бэкапов для разных сценариев
@@ -361,8 +352,6 @@ backup:
     - ./uploads
     - ./documents
 
-logging:
-  driver: loki
 ```
 
 ### 2. Бэкап базы данных PostgreSQL
@@ -394,8 +383,6 @@ backup:
       container: postgres
       database: critical_data
 
-logging:
-  driver: loki
 ```
 
 ### 3. Комбинированный бэкап (файлы + база данных)
@@ -430,8 +417,6 @@ backup:
       container: db
       database: shop
 
-logging:
-  driver: loki
 ```
 
 ### 4. Инкрементальный бэкап с коротким сроком хранения
@@ -461,5 +446,3 @@ backup:
   paths:
     - ./cache
 
-logging:
-  driver: loki

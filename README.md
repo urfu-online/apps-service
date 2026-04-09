@@ -1,78 +1,84 @@
 # apps-service
 
-Платформа управления сервисами на Docker. Один манифест на сервис — всё остальное автоматически.
+Управление сервисами через манифесты. Положил `service.yml` и `docker-compose.yml` — платформа обнаружит сервис, сгенерирует роутинг, начнёт проверять здоровье и бэкапить по расписанию.
 
-## Как это работает
+## Принцип
 
-Положите `service.yml` и `docker-compose.yml` в `services/public/my-app/`:
-
-```
-services/
-  public/
-    my-app/
-      service.yml          # имя, роутинг, health check, backup
-      docker-compose.yml   # контейнеры
-```
-
-При запуске Master Service:
-
-1. Сканирует `services/`, читает манифесты
-2. Генерирует конфиг Caddy из шаблонов — домен, подпапка или порт
-3. Отправляет конфиг в Caddy через API
-4. Деплоит контейнеры через Docker Compose
-5. Запускает health check каждые 30s
-6. Включает бэкапы по расписанию если настроены
-
-Изменили `service.yml` — всё перегенерировалось само. Файловый вотчер работает в реальном времени.
-
-## Архитектура
+Каждый сервис — директория с двумя файлами:
 
 ```
-Caddy (reverse proxy, SSL)
-  │
-  │ proxy
-  ▼
-Master Service ──────────┐
-  FastAPI + NiceGUI       │
-  ├─ ServiceDiscovery     │ file watch
-  ├─ CaddyManager         │── generates .caddy configs
-  ├─ DockerManager        │── docker compose up/down
-  ├─ HealthChecker        │── HTTP probes every 30s
-  ├─ BackupManager        │── restic + pg_dump/mysqldump
-  └─ LogManager           │── container logs
-                          │
-    services/public/      │
-    services/internal/    │◄── service.yml + docker-compose.yml
+services/public/my-app/
+  service.yml          # имя, роутинг, health check, backup
+  docker-compose.yml   # контейнеры сервиса
 ```
 
-Два core-контейнера — `master` и `caddy`. Сервисы — сколько угодно, каждый со своим `docker-compose.yml`. Всё на одной docker сети `platform_network`.
+Master Service при старте:
+1. Сканирует `services/public/` и `services/internal/`
+2. Читает `service.yml`, мержит с `service.local.yml` если есть
+3. Генерирует конфиг Caddy из Jinja2-шаблонов
+4. Отправляет конфиг в Caddy через API
+5. Запускает HTTP health checks
+6. Включает бэкапы по расписанию
 
-## Установка
+File watcher (watchdog) следит за изменениями — изменил манифест, Caddy перегенерировался.
+
+## Компоненты
+
+```
+┌─ Caddy (reverse proxy) ──────────────────┐
+│  Роутинг: domain / subfolder / port       │
+│  SSL, rate limiting, internal_only        │
+└──────────────────┬───────────────────────┘
+                   │ proxy
+┌──────────────────▼───────────────────────┐
+│  Master Service (FastAPI + NiceGUI)       │
+│                                           │
+│  ServiceDiscovery   → сканирует сервисы   │
+│  CaddyManager       → генерирует конфиги  │
+│  DockerManager      → compose up/down     │
+│  HealthChecker      → HTTP probes 30s     │
+│  BackupManager      → rsync, pg_dump      │
+│  LogManager         → (stub)              │
+│  TelegramNotifier   → уведомления         │
+│  EventBus           → file watch events   │
+└──────────────────┬───────────────────────┘
+                   │
+    ┌──────────────┴──────────────┐
+    ▼                              ▼
+ services/public/           services/internal/
+   service.yml                service.yml
+   docker-compose.yml         docker-compose.yml
+```
+
+Два core-контейнера — `master` и `caddy`. Сервисы — отдельные `docker-compose.yml`, каждый на сети `platform_network`.
+
+## Что работает
+
+| Компонент | Статус | Примечание |
+|---|---|---|
+| ServiceDiscovery | ✅ | Сканирование, local override, file watcher |
+| CaddyManager | ✅ | Генерация domain/subfolder/port маршрутов |
+| DockerManager | ✅ | deploy/stop/restart для docker-compose |
+| HealthChecker | ✅ | HTTP probes с Telegram-уведомлениями |
+| BackupManager | ⚠️ | Файлы и БД работают; Restic upload — нет (скрипты удалены) |
+| LogManager | ❌ | Заглушка, данные не собираются |
+| Monitoring | ❌ | Loki/Prometheus/Grafana — не реализовано |
+| Auth (builtin) | ✅ | SQLite + bcrypt |
+| Auth (Keycloak) | ⚠️ | Частично: login/token issuance — внешний |
+| NiceGUI UI | ⚠️ | Dashboard, сервисы, логи; детальная страница сервиса — редирект |
+| Platform CLI | ✅ | 9 команд: list, new, deploy, stop, restart, logs, status, backup, reload |
+| API | ✅ | FastAPI, Swagger на `/docs` |
+
+## Быстрый старт
 
 ```bash
 git clone https://github.com/urfu-online/apps-service.git
 cd apps-service
 ./install.sh
-```
-
-Скрипт создаст `.ops-config.yml` и установит CLI `ops`.
-
-## Использование
-
-```bash
-# Добавить сервис
-mkdir -p services/public/my-app
-# положить service.yml + docker-compose.yml
-
-# Запустить core
 ./restart_core.sh --build
-
-# Запустить сервис
-ops up my-app
-
-# Посмотреть что работает
-ops list
 ```
+
+Добавить сервис — создать `services/public/my-app/service.yml` + `docker-compose.yml`, затем `ops up my-app`.
 
 ## Манифест
 
@@ -97,13 +103,9 @@ backup:
   schedule: "0 2 * * *"
 ```
 
-Ничего лишнего. Платформа берёт из манифеста имя, маршрут, параметры health check и расписание бэкапов. Остальное — в `docker-compose.yml`, как обычно.
-
 ## Local override
 
-Для разработки — `service.local.yml` рядом с `service.yml`. Мержится поверх, в `.gitignore` не коммитится. Меняет только то, что отличается — порт, интервал проверок, что угодно.
-
-Аналогично — `.ops-config.local.yml` для настроек платформы.
+`service.local.yml` рядом с `service.yml` — мержится поверх, в `.gitignore`. Аналогично `.ops-config.local.yml` для настроек платформы.
 
 ## Структура
 
@@ -111,13 +113,13 @@ backup:
 .
 ├── install.sh                  # установка, генерирует .ops-config.yml
 ├── restart_core.sh             # docker compose для master + caddy
-├── .ops-config.yml             # конфиг (tracked, серверные значения)
+├── .ops-config.yml             # конфиг платформы (tracked)
 ├── .ops-config.local.yml       # локальный override (gitignored)
 │
 ├── _core/
-│   ├── master/                 # Master Service — FastAPI + NiceGUI
+│   ├── master/                 # Master Service (FastAPI + NiceGUI)
 │   ├── caddy/                  # Caddy reverse proxy
-│   ├── backup/                 # Restic backup
+│   ├── backup/                 # Restic backup (контейнер есть, скриптов нет)
 │   └── platform-cli/           # Platform CLI (Python/Typer)
 │
 ├── services/                   # сервисы (gitignored)
@@ -133,6 +135,7 @@ backup:
 
 - [Установка](docs/getting-started/install.md)
 - [Первый сервис](docs/getting-started/first-service.md)
+- [CLI и UI](docs/getting-started/cli-ui.md)
 - [Управление сервисами](docs/user-guide/services.md)
 - [Бэкапы](docs/user-guide/backup.md)
 - [Мониторинг](docs/user-guide/monitoring.md)
@@ -140,7 +143,17 @@ backup:
 - [Разработка](docs/development.md)
 - [Примеры манифестов](docs/examples.md)
 
-Полная документация — [MkDocs сайт](https://urfu-online.github.io/apps-service/) (собирается `mkdocs build`).
+## Roadmap
+
+- [ ] **LogManager** — интеграция с Docker API для сбора логов (сейчас заглушка)
+- [ ] **Restic upload** — написать скрипты бэкапа в Restic (сейчас только rsync/pg_dump локально)
+- [ ] **Детальная страница сервиса** в UI (сейчас редирект на список)
+- [ ] **Backup restore/delete** в UI (сейчас кнопки — заглушки)
+- [ ] **Login endpoint** в API (сейчас аутентификация только через внешний Keycloak или прямой SQLite access)
+- [ ] **`_deploy_static`** — обработчик для `type: static` (тип объявлен в enum, но не реализован)
+- [ ] **`external` service type** — обработчик (тип объявлен в enum, но не реализован)
+- [ ] **Loki/Prometheus** — мониторинг (директории `monitoring/` нет)
+- [ ] **Alembic** — миграции БД (сейчас `create_all()` при старте)
 
 ## Тестирование
 

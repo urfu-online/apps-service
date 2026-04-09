@@ -1,27 +1,27 @@
 # CLI и UI
 
-Платформа предоставляет два интерфейса управления: терминальный (`ops`, `platform`) и веб (NiceGUI).
+Платформа предоставляет два интерфейса управления: терминальный (`ops` и `platform`) и веб (NiceGUI).
 
 ## Ops CLI
 
-Простой bash-враппер, устанавливается через `./install.sh`.
+Bash-скрипт, устанавливается через `./install.sh`. Простые команды без зависимостей.
 
 | Команда | Описание |
 |---|---|
 | `ops list` | Все сервисы со статусом |
 | `ops up <svc>` | Запустить (`docker compose up -d`) |
 | `ops down <svc>` | Остановить |
-| `ops logs <svc>` | Логи в реальном времени |
+| `ops logs <svc>` | Логи |
 | `ops logs <svc> -f` | Follow mode |
-| `ops ui` | lazydocker для всех сервисов |
-| `ops ui <svc>` | lazydocker для одного |
 | `ops reload` | Перезагрузить Caddy config |
+| `ops ui` | lazydocker для всех сервисов (нужен lazydocker в PATH) |
+| `ops ui <svc>` | lazydocker для одного |
 
 Сокращение: `ops master` = `ops up master`.
 
 ## Platform CLI
 
-Полноценный Python CLI (Typer). Устанавливается через `pipx`:
+Полноценный Python CLI на Typer. Устанавливается отдельно:
 
 ```bash
 cd _core/platform-cli && ./install.sh
@@ -36,9 +36,11 @@ cd _core/platform-cli && ./install.sh
 | `platform restart <svc>` | Перезапуск |
 | `platform logs <svc> [-f] [-n N]` | Логи |
 | `platform status [<svc>]` | Статус + метрики Docker |
-| `platform backup <svc>` | Запустить бэкап |
+| `platform backup <svc>` | Запустить бэкап (через Master API) |
 | `platform reload` | Перезагрузить Caddy |
 | `platform info` | Общая информация о платформе |
+
+`platform` требует запущенный Master Service для команд backup и reload. `ops` работает автономно через docker compose.
 
 ## Веб-интерфейс (NiceGUI)
 
@@ -52,18 +54,19 @@ http://localhost:8001
 
 | Страница | Что показывает |
 |---|---|
-| **Главная** | Сводка: кол-во сервисов, статус, типы |
-| **Сервисы** | Таблица с кнопками deploy/stop/restart |
-| **Логи** | Фильтрация по сервису, времени, поиск |
-| **Бэкапы** | История бэкапов, restore |
-| **Пользователи** | Управление (при builtin auth) |
+| **Главная** (`/`) | Сводка: кол-во сервисов, статус, типы |
+| **Сервисы** (`/services`) | Таблица с фильтрами |
+| **Логи** (`/logs`) | Фильтрация по сервису, времени, поиск |
+| **Бэкапы** (`/backups`) | Список бэкапов; restore/delete — заглушки |
+
+Детальная страница сервиса (`/services/{name}`) — редирект на `/services`.
 
 ### Аутентификация
 
 | Режим | Как войти |
 |---|---|
-| **Builtin** | Логин/пароль из SQLite (создаётся в UI) |
-| **Keycloak** | OAuth2 redirect на Keycloak realm |
+| **Builtin** | Логин/пароль из SQLite (по умолчанию в docker-compose) |
+| **Keycloak** | OAuth2 redirect (нужен внешний Keycloak) |
 
 ## API
 
@@ -73,4 +76,5 @@ FastAPI API доступно на `http://localhost:8000`:
 - **ReDoc** → `/redoc`
 - **Базовый путь API** → `/api/`
 
-См. [API Reference](../api.md) для подробностей.
+!!! warning "Аутентификация в API"
+    Все эндпоинты требуют Bearer-токен. Endpoints для login/token issuance **нет** — токен нужно получать externally (Keycloak напрямую или через builtin auth напрямую).

@@ -17,10 +17,11 @@ apps/_core/master/
 ├── tests/                 # Тесты
 │   ├── unit/              # Модульные тесты
 │   └── integration/       # Интеграционные тесты
-├── scripts/               # Вспомогательные скрипты
+├── test-fixtures/         # Фикстуры для тестов
 ├── docs/                  # Документация
 ├── docker-compose.yml     # Основная конфигурация Docker Compose
 ├── docker-compose.dev.yml # Конфигурация Docker Compose для разработки
+├── docker-compose.test.yml # Конфигурация для тестов в контейнере
 ├── Dockerfile             # Dockerfile для сборки образа
 ├── Makefile               # Makefile с командами для разработки
 ├── pyproject.toml          # Конфигурация Poetry и скрипты
