@@ -40,7 +40,10 @@
       "Bash(git show *)",
       "Bash(git *)",
       "Bash(which *)",
-      "Bash(ops *)"
+      "Bash(ops *)",
+      "Bash(gh *)",
+      "Bash(cp *)",
+      "Bash(pip install *)"
     ]
   },
   "$version": 3

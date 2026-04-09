@@ -1,0 +1,53 @@
+# Base domain: {{ base_domain }}
+# Services: {% for svc, route in services %}{{ svc.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+# Generated: {{ generated_at }}
+
+{{ base_domain }} {
+    import common_headers
+    
+
+    {% for service, route in services %}
+    # Service: {{ service.name }} ({{ service.version }})
+    import logging {{ service.name }} subfolder
+    @{{ service.name }} {
+        path {{ route.path }}/*
+        path /{{ service.name }}-assets/*
+    }
+
+    handle @{{ service.name }} {
+        @assets {
+            path /{{ service.name }}-assets/*
+        }
+
+        # Rewrite /{{ service.name }}-assets/* -> {{ route.path }}/{{ service.name }}-assets/*
+        rewrite @assets {{ route.path }}{uri}
+
+        {% if service.visibility == 'internal' %}
+        import internal_only
+        {% endif %}
+
+        {% if route.container_name %}
+        reverse_proxy http://{{ route.container_name }}:{{ route.internal_port }} {
+        {% else %}
+        reverse_proxy host.docker.internal:{{ route.internal_port }} {
+        {% endif %}
+            {% if service.health.enabled %}
+            health_uri {{ service.health.endpoint | default('/healthz') }}
+            health_interval {{ service.health.interval }}
+            {% endif %}
+
+            header_up X-Real-IP {remote_host}
+            header_up X-Service-Name {{ service.name }}
+            {% if route.strip_prefix %}
+            header_up X-Forwarded-Prefix {{ route.path }}
+            {% endif %}
+        }
+    }
+
+    {% endfor %}
+
+    # Fallback
+    handle {
+        respond "Service not found" 404
+    }
+}

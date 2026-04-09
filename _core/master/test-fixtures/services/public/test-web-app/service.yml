@@ -1,0 +1,28 @@
+name: test-web-app
+display_name: Test Web App
+version: "1.0.0"
+description: A test web application for integration testing
+type: docker-compose
+visibility: public
+routing:
+  - type: domain
+    domain: test-web.example.com
+    internal_port: 80
+    container_name: test-web-app
+    strip_prefix: true
+  - type: subfolder
+    base_domain: apps.example.com
+    path: /test-web
+    internal_port: 80
+    strip_prefix: true
+health:
+  enabled: true
+  endpoint: /healthz
+  interval: 30s
+  timeout: 10s
+  retries: 3
+backup:
+  enabled: false
+tags:
+  - test
+  - web

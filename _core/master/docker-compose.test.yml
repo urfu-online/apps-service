@@ -1,21 +1,41 @@
 version: '3.8'
 
 # Test profile for Platform Master Service
-# Usage: docker compose -f docker-compose.yml -f docker-compose.test.yml up -d
+# Usage: cd _core/master && docker compose -f docker-compose.yml -f docker-compose.test.yml up --build
+#
+# This overlay:
+# - Runs pytest instead of the application
+# - Mounts source code for testing
+# - Uses an isolated test network (no external dependencies)
+# - Does NOT require /var/run/docker.sock (uses mocks)
 
 services:
-  master:
+  master-test:
     build:
+      context: .
+      dockerfile: Dockerfile
       args:
         - BUILD_ENV=dev
+    container_name: platform-master-test
     environment:
       - APP_ENV=test
       - DEBUG=true
+      - SERVICES_PATH=/test-fixtures/services
+      - CADDY_CONFIG_PATH=/test-fixtures/caddy
+      - BACKUP_PATH=/test-fixtures/backups
+      - DATABASE_URL=sqlite:///./test-master.db
+      - AUTH_PROVIDER=builtin
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_IDS=[]
     volumes:
-      - ./master.db:/app/master.db
-      - ../services:/services
-      - ../_core/caddy:/caddy
-      - ../backups:/backups
-      - /var/run/docker.sock:/var/run/docker.sock
-      - .:/app  # Mount source code for development
-    command: ["poetry", "run", "pytest"]
+      - .:/app
+      - ./tests:/app/tests
+      - ./test-fixtures:/test-fixtures
+    command: ["poetry", "run", "pytest", "tests/", "-v", "--tb=short", "--cov=app", "--cov-report=term-missing"]
+    networks:
+      - test_network
+
+networks:
+  test_network:
+    driver: bridge
+    name: platform_test_network

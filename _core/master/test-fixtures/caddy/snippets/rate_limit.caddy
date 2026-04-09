@@ -1,0 +1,9 @@
+(rate_limit) {
+    rate_limit {
+        zone dynamic {
+            key {remote_host}
+            events 100
+            window 1m
+        }
+    }
+}

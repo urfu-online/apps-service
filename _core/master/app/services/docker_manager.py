@@ -20,18 +20,27 @@ class DockerManager:
         self.notifier = notifier
     
     async def deploy_service(
-        self, 
+        self,
         service: ServiceManifest,
         build: bool = True,
-        pull: bool = False
+        pull: bool = False,
+        dry_run: bool = False
     ) -> Dict[str, Any]:
-        """Деплой сервиса"""
+        """Деплой сервиса
+
+        Args:
+            dry_run: Если True, команды не выполняются — только логируются.
+                     Уведомления не отправляются.
+        """
         result = {
             "success": False,
             "message": "",
             "logs": []
         }
-        
+
+        if dry_run:
+            return await self._deploy_compose_dry_run(service, build, pull)
+
         try:
             if service.type == "docker-compose":
                 result = await self._deploy_compose(service, build, pull)
@@ -39,7 +48,7 @@ class DockerManager:
                 result = await self._deploy_single(service, build, pull)
             elif service.type == "static":
                 result = await self._deploy_static(service)
-            
+
             if result["success"]:
                 await self.notifier.send(
                     f"✅ Service {service.name} deployed successfully\n"
@@ -50,7 +59,7 @@ class DockerManager:
                     f"❌ Service {service.name} deployment failed\n"
                     f"Error: {result['message']}"
                 )
-                
+
         except Exception as e:
             result["success"] = False
             result["message"] = str(e)
@@ -58,8 +67,48 @@ class DockerManager:
                 f"❌ Service {service.name} deployment error\n"
                 f"Error: {e}"
             )
-        
+
         return result
+
+    async def _deploy_compose_dry_run(
+        self,
+        service: ServiceManifest,
+        build: bool,
+        pull: bool
+    ) -> Dict[str, Any]:
+        """Dry-run деплоя — логирует команды без выполнения."""
+        compose_file = service.path / "docker-compose.yml"
+        logs = []
+
+        if not compose_file.exists():
+            return {
+                "success": False,
+                "message": f"dry-run: docker-compose.yml not found at {compose_file}",
+                "logs": []
+            }
+
+        cmd = ["docker", "compose", "-f", str(compose_file)]
+        env_file = service.path / ".env"
+        if env_file.exists():
+            cmd.extend(["--env-file", str(env_file)])
+
+        logs.append(f"[DRY-RUN] Would deploy service: {service.name}")
+        logs.append(f"[DRY-RUN] Type: {service.type}")
+        logs.append(f"[DRY-RUN] Compose file: {compose_file}")
+
+        if pull:
+            logs.append(f"[DRY-RUN] {' '.join(cmd + ['pull'])}")
+        if build:
+            logs.append(f"[DRY-RUN] {' '.join(cmd + ['build', '--no-cache'])}")
+        logs.append(f"[DRY-RUN] {' '.join(cmd + ['up', '-d', '--remove-orphans'])}")
+
+        logger.info(f"DRY-RUN deploy {service.name}:\n" + "\n".join(logs))
+
+        return {
+            "success": True,
+            "message": f"dry-run: would execute docker compose up -d{' --build' if build else ''}",
+            "logs": logs,
+        }
     
     async def _deploy_compose(
         self, 

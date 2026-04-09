@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  test-web-app:
+    image: nginx:alpine
+    container_name: test-web-app
+    ports:
+      - "9001:80"
+    networks:
+      - platform_network
+
+networks:
+  platform_network:
+    external: true
+    name: platform_network

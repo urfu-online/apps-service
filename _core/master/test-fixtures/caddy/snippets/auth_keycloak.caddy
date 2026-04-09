@@ -1,0 +1,7 @@
+(auth_keycloak) {
+    # Forward auth через Keycloak
+    forward_auth keycloak:8080 {
+        uri /auth/realms/platform/protocol/openid-connect/auth
+        copy_headers Authorization
+    }
+}

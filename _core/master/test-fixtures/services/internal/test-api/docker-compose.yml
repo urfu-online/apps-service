@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  test-api:
+    image: python:3.12-slim
+    container_name: test-api
+    command: ["python", "-m", "http.server", "8000"]
+    ports:
+      - "9100:8000"
+    networks:
+      - platform_network
+
+networks:
+  platform_network:
+    external: true
+    name: platform_network

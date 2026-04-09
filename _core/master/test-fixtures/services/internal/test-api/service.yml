@@ -1,0 +1,22 @@
+name: test-api
+display_name: Test API Service
+version: "2.1.0"
+description: A test API service for integration testing
+type: docker-compose
+visibility: internal
+routing:
+  - type: port
+    internal_port: 8000
+    port: 9100
+    container_name: test-api
+health:
+  enabled: true
+  endpoint: /health
+  interval: 15s
+  timeout: 5s
+  retries: 5
+backup:
+  enabled: false
+tags:
+  - test
+  - api
