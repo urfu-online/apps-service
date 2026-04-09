@@ -119,18 +119,10 @@ dmypy.json
 
 infra/
 .codeassistantmodes
-ops
-manager.sh
-docker-manager.sh
-.codeassistant
-ai_summary.md
 _core/master/master.db
-.legacy/
-ai_summary.pdf
-manager.sh
-_core/caddy/config/*
-_core/caddy/conf.d/*
-_core/caddy/data/*
+_core/caddy/config/
+_core/caddy/conf.d/
+_core/caddy/data/
 QWEN.md
 .qwen/PROJECT_SUMMARY.md
 services/*
@@ -147,3 +139,4 @@ _core/platform-cli/venv/
 _core/platform-cli/dist/
 _core/platform-cli/build/
 _core/platform-cli/*.egg-info
+.legacy/
