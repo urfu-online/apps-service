@@ -27,20 +27,29 @@ CONFIG_FILE: Optional[Path] = None
 
 
 def get_config() -> dict:
-    """Загрузка конфигурации из .ops-config.yml"""
+    """Загрузка конфигурации из .ops-config.yml с поддержкой local override"""
     global PROJECT_ROOT, CONFIG_FILE
-    
+
     config_candidates = [
         Path.cwd() / ".ops-config.yml",
         Path(__file__).parent.parent / ".ops-config.yml",
         Path.home() / ".config" / "ops-manager" / "config.yml",
     ]
-    
+
     for cfg_path in config_candidates:
         if cfg_path.exists():
             CONFIG_FILE = cfg_path
             with open(cfg_path) as f:
                 config = yaml.safe_load(f)
+
+            # Применяем local override если существует
+            local_override = cfg_path.parent / ".ops-config.local.yml"
+            if local_override.exists():
+                with open(local_override) as f:
+                    local_data = yaml.safe_load(f)
+                if local_data and isinstance(local_data, dict):
+                    config.update(local_data)
+
             PROJECT_ROOT = Path(config.get("project_root", "/apps"))
             return config
     

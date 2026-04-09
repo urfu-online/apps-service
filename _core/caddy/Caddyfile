@@ -1,6 +1,8 @@
 {
     email admin@urfu.online
     admin 0.0.0.0:2019
+    # Для локальной разработки: отключаем авто-HTTPS (нет публичного домена)
+    auto_https disable_redirects
 
     # Access log (по умолчанию)
     log {
@@ -20,5 +22,24 @@
 # Импорт глобальных сниппетов
 import /etc/caddy/snippets/*.caddy
 
-# Импорт всех конфигураций сервисов
+# Локальная разработка — HTTP без HTTPS
+http://localhost {
+    import common_headers
+    # Импорт сгенерированных маршрутов для localhost
+    import /etc/caddy/conf.d/_subfolder_localhost.caddy.inc
+}
+
+# Внешние домены для локальной разработки (через Host header)
+http://new-instructor.urfu.online {
+    import common_headers
+    import logging instructor domain
+    reverse_proxy http://instructor-frontend:80 {
+        health_uri /
+        health_interval 30s
+        header_up X-Real-IP {remote_host}
+        header_up X-Service-Name instructor
+    }
+}
+
+# Импорт всех конфигураций сервисов (домены, порты)
 import /etc/caddy/conf.d/*.caddy

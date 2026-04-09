@@ -14,7 +14,7 @@ class TestUserEndpoints:
     def test_list_users_success(self):
         """Тест успешного получения списка пользователей."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.users.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя (суперпользователя)
@@ -38,7 +38,7 @@ class TestUserEndpoints:
     def test_list_users_forbidden(self):
         """Тест получения списка пользователей без прав доступа."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user:
+        with patch('app.core.security.get_current_user') as mock_get_current_user:
             # Мокаем текущего пользователя (обычного пользователя)
             mock_get_current_user.return_value = {"is_superuser": False}
             
@@ -50,7 +50,7 @@ class TestUserEndpoints:
     def test_create_user_success(self):
         """Тест успешного создания пользователя."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.users.get_db') as mock_get_db, \
              patch('app.api.routes.users.auth_provider') as mock_auth_provider:
             
@@ -84,7 +84,7 @@ class TestUserEndpoints:
     def test_create_user_already_exists(self):
         """Тест создания пользователя, который уже существует."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.users.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя (суперпользователя)
@@ -108,7 +108,7 @@ class TestUserEndpoints:
     def test_create_user_forbidden(self):
         """Тест создания пользователя без прав доступа."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user:
+        with patch('app.core.security.get_current_user') as mock_get_current_user:
             # Мокаем текущего пользователя (обычного пользователя)
             mock_get_current_user.return_value = {"is_superuser": False}
             
@@ -124,7 +124,7 @@ class TestUserEndpoints:
     def test_get_user_success(self):
         """Тест успешного получения информации о пользователе."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.users.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя
@@ -146,7 +146,7 @@ class TestUserEndpoints:
     def test_get_user_not_found(self):
         """Тест получения информации о несуществующем пользователе."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.users.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя
@@ -165,7 +165,7 @@ class TestUserEndpoints:
     def test_update_user_success(self):
         """Тест успешного обновления информации о пользователе."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.users.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя (суперпользователя)
@@ -195,7 +195,7 @@ class TestUserEndpoints:
     def test_update_user_forbidden(self):
         """Тест обновления информации о пользователе без прав доступа."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user:
+        with patch('app.core.security.get_current_user') as mock_get_current_user:
             # Мокаем текущего пользователя (обычного пользователя, не владелец)
             mock_get_current_user.return_value = {"is_superuser": False, "sub": "2"}
             
@@ -209,7 +209,7 @@ class TestUserEndpoints:
     def test_delete_user_success(self):
         """Тест успешного удаления пользователя."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.users.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя (суперпользователя)
@@ -231,7 +231,7 @@ class TestUserEndpoints:
     def test_delete_user_forbidden(self):
         """Тест удаления пользователя без прав доступа."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user:
+        with patch('app.core.security.get_current_user') as mock_get_current_user:
             # Мокаем текущего пользователя (обычного пользователя)
             mock_get_current_user.return_value = {"is_superuser": False}
             
@@ -243,7 +243,7 @@ class TestUserEndpoints:
     def test_delete_user_not_found(self):
         """Тест удаления несуществующего пользователя."""
         # Мокаем зависимости
-        with patch('app.api.routes.users.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.users.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя (суперпользователя)

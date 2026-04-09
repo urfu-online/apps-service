@@ -2,6 +2,7 @@
 from nicegui import ui
 from typing import Optional
 from datetime import datetime, timezone
+from app.utils.i18n import natural_time
 
 
 class HealthIndicator(ui.column):
@@ -91,7 +92,7 @@ class HealthIndicator(ui.column):
         if self._response_time > 0:
             tooltip_parts.append(f"Время ответа: {self._response_time:.2f}с")
         if self._last_checked:
-            tooltip_parts.append(f"Проверен: {self._last_checked.strftime('%H:%M:%S')}")
+            tooltip_parts.append(f"Проверен: {natural_time(self._last_checked)}")
         if self._error:
             tooltip_parts.append(f"Ошибка: {self._error}")
         

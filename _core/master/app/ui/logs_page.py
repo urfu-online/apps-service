@@ -1,11 +1,12 @@
 """Страница просмотра логов."""
 from nicegui import ui
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from app.ui.components.base import (
     create_header,
 )
+from app.utils.i18n import natural_delta
 
 
 class LogsPage:
@@ -47,13 +48,13 @@ class LogsPage:
 
                 # Период времени
                 self.time_range_select = ui.select(
-                    options=[
-                        {'label': '1 час', 'value': '1h'},
-                        {'label': '6 часов', 'value': '6h'},
-                        {'label': '12 часов', 'value': '12h'},
-                        {'label': '24 часа', 'value': '24h'},
-                        {'label': '7 дней', 'value': '7d'},
-                    ],
+                    options={
+                        '1h': '1 час',
+                        '6h': '6 часов',
+                        '12h': '12 часов',
+                        '24h': '24 часа',
+                        '7d': '7 дней',
+                    },
                     value='1h',
                     label='Период',
                     on_change=lambda _: self._load_logs()
@@ -84,6 +85,7 @@ class LogsPage:
         # Статистика
         with ui.row().classes('w-full px-6 mt-2'):
             self.status_label = ui.label('Выберите сервис для просмотра логов').classes('text-caption text-grey-7')
+            self.period_label = ui.label('').classes('text-caption text-grey-7 ml-4')
 
     def _get_since_time(self, range_key: str) -> datetime:
         """Вычисление времени начала периода."""
@@ -121,11 +123,12 @@ class LogsPage:
                 since=since.isoformat()
             )
             self.logs_cache = logs
-            
+
             # Отображаем
             self._display_logs()
-            
+
             self.status_label.set_text(f'Загружено {len(logs)} записей')
+            self.period_label.set_text(f'Период: {natural_delta(self.TIME_RANGES.get(time_range, timedelta(hours=1)))} назад')
         except Exception as e:
             ui.notify(f'Ошибка загрузки логов: {e}', type='negative')
             self.status_label.set_text('Ошибка загрузки')

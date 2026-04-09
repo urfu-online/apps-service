@@ -14,9 +14,9 @@ class TestBackupEndpoints:
     def test_list_service_backups_success(self):
         """Тест успешного получения списка бэкапов сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.backups.app.state.discovery.get_service') as mock_get_service, \
-             patch('app.api.routes.backups.app.state.backup.list_backups') as mock_list_backups:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service, \
+             patch('app.main.app.state.backup.list_backups') as mock_list_backups:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -52,9 +52,9 @@ class TestBackupEndpoints:
     def test_list_service_backups_with_pagination(self):
         """Тест получения списка бэкапов сервиса с пагинацией."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.backups.app.state.discovery.get_service') as mock_get_service, \
-             patch('app.api.routes.backups.app.state.backup.list_backups') as mock_list_backups:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service, \
+             patch('app.main.app.state.backup.list_backups') as mock_list_backups:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -84,8 +84,8 @@ class TestBackupEndpoints:
     def test_list_service_backups_not_found(self):
         """Тест получения списка бэкапов несуществующего сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.backups.app.state.discovery.get_service') as mock_get_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -101,9 +101,9 @@ class TestBackupEndpoints:
     def test_create_backup_success(self):
         """Тест успешного создания бэкапа."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.backups.app.state.discovery.get_service') as mock_get_service, \
-             patch('app.api.routes.backups.app.state.backup.backup_service') as mock_backup_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service, \
+             patch('app.main.app.state.backup.backup_service') as mock_backup_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -135,9 +135,9 @@ class TestBackupEndpoints:
     def test_create_backup_failure(self):
         """Тест создания бэкапа с ошибкой."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.backups.app.state.discovery.get_service') as mock_get_service, \
-             patch('app.api.routes.backups.app.state.backup.backup_service') as mock_backup_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service, \
+             patch('app.main.app.state.backup.backup_service') as mock_backup_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -164,8 +164,8 @@ class TestBackupEndpoints:
     def test_create_backup_not_found(self):
         """Тест создания бэкапа для несуществующего сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.backups.app.state.discovery.get_service') as mock_get_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -183,8 +183,8 @@ class TestBackupEndpoints:
     def test_restore_backup_success(self):
         """Тест успешного восстановления бэкапа."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.backups.app.state.discovery.get_service') as mock_get_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -206,8 +206,8 @@ class TestBackupEndpoints:
     def test_restore_backup_not_found(self):
         """Тест восстановления бэкапа для несуществующего сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.backups.app.state.discovery.get_service') as mock_get_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -225,7 +225,7 @@ class TestBackupEndpoints:
     def test_delete_backup_success(self):
         """Тест успешного удаления бэкапа."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user:
+        with patch('app.core.security.get_current_user') as mock_get_current_user:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -239,7 +239,7 @@ class TestBackupEndpoints:
     def test_get_backup_info_success(self):
         """Тест успешного получения информации о бэкапе."""
         # Мокаем зависимости
-        with patch('app.api.routes.backups.get_current_user') as mock_get_current_user:
+        with patch('app.core.security.get_current_user') as mock_get_current_user:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}

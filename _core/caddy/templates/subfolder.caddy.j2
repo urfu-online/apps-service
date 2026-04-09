@@ -26,7 +26,11 @@
         import internal_only
         {% endif %}
 
+        {% if route.container_name %}
+        reverse_proxy http://{{ route.container_name }}:{{ route.internal_port }} {
+        {% else %}
         reverse_proxy host.docker.internal:{{ route.internal_port }} {
+        {% endif %}
             {% if service.health.enabled %}
             health_uri {{ service.health.endpoint | default('/healthz') }}
             health_interval {{ service.health.interval }}

@@ -32,9 +32,12 @@ class CaddyManager:
     
     async def regenerate_all(self, services: Dict[str, ServiceManifest]):
         """Перегенерация всех конфигов сервисов"""
-        # Удаляем старые конфиги
+        # Удаляем старые конфиги (все .caddy кроме _subfolder_*.caddy.inc — ручных)
         for old_conf in self.conf_d.glob("*.caddy"):
             if not old_conf.name.startswith("_"):
+                old_conf.unlink()
+            # Также удаляем старые _subfolder если они были сгенерированы (не .inc)
+            elif old_conf.name.startswith("_subfolder_") and not old_conf.name.endswith(".caddy.inc"):
                 old_conf.unlink()
         
         # Группируем сервисы по типу routing
@@ -70,8 +73,8 @@ class CaddyManager:
         await self.reload_caddy()
     
     async def _generate_domain_config(
-        self, 
-        service: ServiceManifest, 
+        self,
+        service: ServiceManifest,
         route
     ):
         """Генерация конфига для отдельного домена"""
@@ -80,18 +83,26 @@ class CaddyManager:
         except Exception as e:
             logger.error(f"Template domain.caddy.j2 not found: {e}")
             return
-        
+
         content = template.render(
             service=service,
             route=route,
             generated_at=datetime.now(timezone.utc).isoformat()
         )
-        
-        config_file = self.conf_d / f"{service.name}.caddy"
+
+        # Если у сервиса несколько доменов — добавляем домен в имя файла
+        domain_routes = [r for r in service.routing if r.type == "domain"]
+        if len(domain_routes) > 1:
+            # Несколько доменов: support_help.openedu.urfu.ru.caddy
+            safe_domain = route.domain.replace(".", "_")
+            config_file = self.conf_d / f"{service.name}_{safe_domain}.caddy"
+        else:
+            config_file = self.conf_d / f"{service.name}.caddy"
+
         async with aiofiles.open(config_file, 'w') as f:
             await f.write(content)
-        
-        logger.info(f"Generated domain config for {service.name}")
+
+        logger.info(f"Generated domain config for {service.name} -> {route.domain}")
     
     async def _generate_subfolder_config(
         self, 

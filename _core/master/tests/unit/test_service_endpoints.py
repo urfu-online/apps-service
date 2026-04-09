@@ -14,8 +14,8 @@ class TestServiceEndpoints:
     def test_list_services_success(self):
         """Тест успешного получения списка сервисов."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.services', new_callable=dict) as mock_services:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.services', new_callable=dict) as mock_services:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -67,8 +67,8 @@ class TestServiceEndpoints:
     def test_list_services_with_filters(self):
         """Тест получения списка сервисов с фильтрами."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.services', new_callable=dict) as mock_services:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.services', new_callable=dict) as mock_services:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -128,9 +128,9 @@ class TestServiceEndpoints:
     def test_get_service_success(self):
         """Тест успешного получения деталей сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.get_service') as mock_get_service, \
-             patch('app.api.routes.services.app.state.docker.get_stats') as mock_get_stats:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service, \
+             patch('app.main.app.state.docker.get_stats') as mock_get_stats:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -168,8 +168,8 @@ class TestServiceEndpoints:
     def test_get_service_not_found(self):
         """Тест получения деталей несуществующего сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.get_service') as mock_get_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -185,11 +185,11 @@ class TestServiceEndpoints:
     def test_deploy_service_success(self):
         """Тест успешного деплоя сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.get_service') as mock_get_service, \
-             patch('app.api.routes.services.app.state.docker.deploy_service') as mock_deploy_service, \
-             patch('app.api.routes.services.app.state.discovery.scan_all') as mock_scan_all, \
-             patch('app.api.routes.services.app.state.caddy.regenerate_all') as mock_regenerate_all:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service, \
+             patch('app.main.app.state.docker.deploy_service') as mock_deploy_service, \
+             patch('app.main.app.state.discovery.scan_all') as mock_scan_all, \
+             patch('app.main.app.state.caddy.regenerate_all') as mock_regenerate_all:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -219,8 +219,8 @@ class TestServiceEndpoints:
     def test_deploy_service_not_found(self):
         """Тест деплоя несуществующего сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.get_service') as mock_get_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -239,9 +239,9 @@ class TestServiceEndpoints:
     def test_stop_service_success(self):
         """Тест успешной остановки сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.get_service') as mock_get_service, \
-             patch('app.api.routes.services.app.state.docker.stop_service') as mock_stop_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service, \
+             patch('app.main.app.state.docker.stop_service') as mock_stop_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -266,8 +266,8 @@ class TestServiceEndpoints:
     def test_stop_service_not_found(self):
         """Тест остановки несуществующего сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.get_service') as mock_get_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -283,9 +283,9 @@ class TestServiceEndpoints:
     def test_restart_service_success(self):
         """Тест успешного перезапуска сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.get_service') as mock_get_service, \
-             patch('app.api.routes.services.app.state.docker.restart_service') as mock_restart_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service, \
+             patch('app.main.app.state.docker.restart_service') as mock_restart_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -310,8 +310,8 @@ class TestServiceEndpoints:
     def test_restart_service_not_found(self):
         """Тест перезапуска несуществующего сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.services.get_current_user') as mock_get_current_user, \
-             patch('app.api.routes.services.app.state.discovery.get_service') as mock_get_service:
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
+             patch('app.main.app.state.discovery.get_service') as mock_get_service:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}

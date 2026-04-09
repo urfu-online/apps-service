@@ -2,7 +2,6 @@
 # Generated: Чт 12 фев 2026 21:20:01 UTC
 environment: server
 project_root: /apps
-
 # Service paths (relative to project_root)
 core_path: _core
 services_path: services

@@ -135,6 +135,12 @@ QWEN.md
 .qwen/PROJECT_SUMMARY.md
 services/*
 
+# Local service overrides (для разработки — не коммитятся)
+services/**/*.local.yml
+
+# Local ops config override (для разработки — не коммитится)
+.ops-config.local.yml
+
 # Platform CLI - изолированный проект
 _core/platform-cli/.venv/
 _core/platform-cli/venv/

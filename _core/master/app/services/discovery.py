@@ -16,6 +16,28 @@ from app.core.events import event_bus
 # Настройка логирования
 logger = logging.getLogger(__name__)
 
+_SERVICE_CONFIG_FILES = ('service.yml', 'service.local.yml', 'docker-compose.yml')
+
+
+def _is_service_config_file(path: str) -> bool:
+    """Проверка, является ли файл конфигурацией сервиса."""
+    import os
+    return os.path.basename(path) in _SERVICE_CONFIG_FILES
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Глубокое слияние словарей. override приоритетнее.
+
+    Списки заменяются целиком (не мержатся), словари рекурсивно мержатся.
+    """
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
 
 class RoutingConfigModel(BaseModel):
     """Модель конфигурации маршрутизации"""
@@ -26,6 +48,7 @@ class RoutingConfigModel(BaseModel):
     port: Optional[int] = None
     strip_prefix: bool = True
     internal_port: int = 8000
+    container_name: Optional[str] = None  # Имя контейнера для прямого проксирования
 
 
 class HealthConfigModel(BaseModel):
@@ -107,13 +130,14 @@ class ServiceDiscovery:
         return self.services
     
     async def _load_service(
-        self, 
-        service_dir: Path, 
+        self,
+        service_dir: Path,
         visibility: str
     ) -> Optional[ServiceManifest]:
-        """Загрузка манифеста сервиса"""
+        """Загрузка манифеста сервиса с поддержкой local override"""
         manifest_path = service_dir / "service.yml"
-        
+        local_override_path = service_dir / "service.local.yml"
+
         # Если нет service.yml, пробуем создать минимальный из docker-compose
         if not manifest_path.exists():
             compose_path = service_dir / "docker-compose.yml"
@@ -122,8 +146,9 @@ class ServiceDiscovery:
                     service_dir, visibility
                 )
             return None
-        
+
         try:
+            # Загружаем основной манифест
             async with aiofiles.open(manifest_path, 'r') as f:
                 content = await f.read()
                 data = yaml.safe_load(content)
@@ -132,15 +157,26 @@ class ServiceDiscovery:
                 logger.warning(f"Empty service.yml at {manifest_path}")
                 return None
 
+            # Merge local override если существует
+            if local_override_path.exists():
+                async with aiofiles.open(local_override_path, 'r') as f:
+                    local_content = await f.read()
+                    local_data = yaml.safe_load(local_content)
+                if local_data and isinstance(local_data, dict):
+                    data = _deep_merge(data, local_data)
+                    logger.info(f"Applied local override for {service_dir.name}")
+                elif local_data is not None:
+                    logger.warning(f"service.local.yml at {local_override_path} is not a mapping, skipping")
+
             manifest = ServiceManifest(**data)
             manifest.path = service_dir
             manifest.visibility = visibility
-            
+
             # Получить статус из Docker
             manifest.status = await self._get_docker_status(manifest)
-            
+
             return manifest
-            
+
         except Exception as e:
             logger.error(f"Error loading {manifest_path}: {e}")
             return None
@@ -244,10 +280,8 @@ class ServiceChangeHandler(FileSystemEventHandler):
         if event.is_directory:
             return
 
-        # Проверяем, что изменение касается service.yml или docker-compose.yml
-        if event.src_path.endswith('service.yml') or event.src_path.endswith('docker-compose.yml'):
+        if _is_service_config_file(event.src_path):
             logger.info(f"Service configuration changed: {event.src_path}")
-            # Отправляем событие об изменении сервиса
             asyncio.create_task(event_bus.emit("service.config.changed", {
                 "path": event.src_path
             }))
@@ -257,10 +291,8 @@ class ServiceChangeHandler(FileSystemEventHandler):
         if event.is_directory:
             return
 
-        # Проверяем, что создан service.yml или docker-compose.yml
-        if event.src_path.endswith('service.yml') or event.src_path.endswith('docker-compose.yml'):
+        if _is_service_config_file(event.src_path):
             logger.info(f"New service configuration created: {event.src_path}")
-            # Отправляем событие о создании сервиса
             asyncio.create_task(event_bus.emit("service.config.created", {
                 "path": event.src_path
             }))
@@ -270,10 +302,8 @@ class ServiceChangeHandler(FileSystemEventHandler):
         if event.is_directory:
             return
 
-        # Проверяем, что удален service.yml или docker-compose.yml
-        if event.src_path.endswith('service.yml') or event.src_path.endswith('docker-compose.yml'):
+        if _is_service_config_file(event.src_path):
             logger.info(f"Service configuration deleted: {event.src_path}")
-            # Отправляем событие об удалении сервиса
             asyncio.create_task(event_bus.emit("service.config.deleted", {
                 "path": event.src_path
             }))

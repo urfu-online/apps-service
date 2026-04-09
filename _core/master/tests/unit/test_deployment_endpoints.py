@@ -15,7 +15,7 @@ class TestDeploymentEndpoints:
     def test_list_deployments_success(self):
         """Тест успешного получения списка деплоев."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя
@@ -62,7 +62,7 @@ class TestDeploymentEndpoints:
     def test_list_deployments_with_pagination(self):
         """Тест получения списка деплоев с пагинацией."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя
@@ -101,7 +101,7 @@ class TestDeploymentEndpoints:
     def test_get_deployment_success(self):
         """Тест успешного получения информации о деплое."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя
@@ -134,7 +134,7 @@ class TestDeploymentEndpoints:
     def test_get_deployment_not_found(self):
         """Тест получения информации о несуществующем деплое."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя
@@ -153,7 +153,7 @@ class TestDeploymentEndpoints:
     def test_get_deployment_logs_success(self):
         """Тест успешного получения логов деплоя."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя
@@ -192,7 +192,7 @@ class TestDeploymentEndpoints:
     def test_get_deployment_logs_with_filter(self):
         """Тест получения логов деплоя с фильтрацией по уровню."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя
@@ -226,9 +226,9 @@ class TestDeploymentEndpoints:
     def test_start_deployment_success(self):
         """Тест успешного запуска деплоя."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db, \
-             patch('app.api.routes.deployments.app.state.discovery.services', new_callable=dict) as mock_services, \
+             patch('app.main.app.state.discovery.services', new_callable=dict) as mock_services, \
              patch('app.api.routes.deployments.asyncio.create_task') as mock_create_task:
             
             # Мокаем текущего пользователя
@@ -269,9 +269,9 @@ class TestDeploymentEndpoints:
     def test_start_deployment_service_not_found(self):
         """Тест запуска деплоя для несуществующего сервиса."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db, \
-             patch('app.api.routes.deployments.app.state.discovery.services', new_callable=dict) as mock_services:
+             patch('app.main.app.state.discovery.services', new_callable=dict) as mock_services:
             
             # Мокаем текущего пользователя
             mock_get_current_user.return_value = {"username": "testuser"}
@@ -292,7 +292,7 @@ class TestDeploymentEndpoints:
     def test_rollback_deployment_success(self):
         """Тест успешного отката деплоя."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db, \
              patch('app.api.routes.deployments.asyncio.create_task') as mock_create_task:
             
@@ -323,7 +323,7 @@ class TestDeploymentEndpoints:
     def test_rollback_deployment_not_found(self):
         """Тест отката несуществующего деплоя."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя
@@ -342,7 +342,7 @@ class TestDeploymentEndpoints:
     def test_rollback_deployment_not_available(self):
         """Тест отката деплоя, когда откат недоступен."""
         # Мокаем зависимости
-        with patch('app.api.routes.deployments.get_current_user') as mock_get_current_user, \
+        with patch('app.core.security.get_current_user') as mock_get_current_user, \
              patch('app.api.routes.deployments.get_db') as mock_get_db:
             
             # Мокаем текущего пользователя

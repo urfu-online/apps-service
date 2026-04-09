@@ -36,7 +36,7 @@ class DeploymentLog(BaseModel):
     timestamp = Column(DateTime, default=datetime.utcnow)
     
     # Связи
-    deployment = relationship("Deployment", backref="logs")
+    deployment = relationship("Deployment", backref="deployment_logs")
     
     def __repr__(self):
         return f"<DeploymentLog(deployment_id={self.deployment_id}, level='{self.level}')>"
