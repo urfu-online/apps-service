@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.scripts]
-platform = "platform.cli:main"
+platform = "apps_platform.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -32,7 +32,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["platform"]
+packages = ["apps_platform"]
 
 [tool.ruff]
 line-length = 120
