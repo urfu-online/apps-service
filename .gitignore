@@ -123,8 +123,6 @@ _core/caddy/config/
 _core/caddy/conf.d/
 _core/caddy/data/
 QWEN.md
-.qwen/PROJECT_SUMMARY.md
-.qwen/settings.json
 services/*
 
 # Local service overrides (для разработки — не коммитятся)
@@ -145,3 +143,51 @@ site/
 
 # Legacy / generated artifacts
 .legacy/
+
+# Qwen settings and temporary files
+.qwen/
+*.qwen_temp*
+
+# Specific .qwen files to ignore if they were previously committed
+.qwen/settings.json
+.qwen/settings.json.orig
+
+# Environment and secrets files
+secrets/
+*.env.local
+*.env.production
+*.env.development
+*.env.test
+config/secrets.yml
+credentials.json
+.key
+.pem
+.p12
+.jks
+.store
+
+# Application-specific sensitive files
+*.session
+*.log.encrypted
+passwords.txt
+accounts.json
+keys.json
+
+# Core dumps and crash files (security risk if sensitive data is present)
+*.core
+*.dmp
+
+# IDE security files
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
