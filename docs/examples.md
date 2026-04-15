@@ -1,13 +1,20 @@
 # Примеры манифестов
 
-!!! note "Поддерживаемые типы сервисов"
-    Реализован только `type: docker-compose`. Типы `static`, `docker`, `external` объявлены в модели, но обработчики деплоя для них не написаны.
-
-    Поле `logging` в `service.yml` не обрабатывается — Loki-интеграция не реализована.
+> ⚠️ **Поддерживаемые типы сервисов:**
+> - ✅ `type: docker-compose` — полностью реализован и протестирован
+> - ❌ `type: static` — объявлен в модели, но обработчик не написан
+> - ❌ `type: docker` — объявлен в модели, но обработчик не написан
+> - ❌ `type: external` — объявлен в модели, но обработчик не написан
+>
+> ⚠️ **Важно:** Поле `container_name` в разделе `routing` **обязательно**. Без него Caddy будет проксировать запросы на `host.docker.internal` (хост-машину) вместо Docker-контейнера, что создаёт конфликты портов и проблемы с безопасностью.
+>
+> ⚠️ **Поле `logging`** в `service.yml` не обрабатывается — Loki-интеграция не реализована.
 
 ## Конфигурации сервисов
 
 ### 1. Статический сайт
+
+> ⚠️ **Примечание:** Тип `static` не реализован. Этот пример показывает желаемую структуру для будущей реализации.
 
 ```yaml
 # service.yml
@@ -21,6 +28,7 @@ visibility: public
 routing:
   - type: domain
     domain: company.example.com
+    container_name: landing-page  # ⚠️ Обязательно для docker-compose типа
 
 health:
   enabled: false
@@ -61,6 +69,7 @@ routing:
     base_domain: api.example.com
     path: /users
     internal_port: 8000
+    container_name: user-api  # ⚠️ Обязательно: имя должно совпадать с контейнером в docker-compose.yml
 
 health:
   enabled: true
@@ -120,6 +129,7 @@ routing:
   - type: port
     port: 3005
     internal_port: 3000
+    container_name: notification-service  # ⚠️ Обязательно: имя должно совпадать с контейнером в docker-compose.yml
 
 health:
   enabled: true
@@ -161,6 +171,7 @@ routing:
   - type: domain
     domain: blog.example.com
     internal_port: 8000
+    container_name: blog-engine  # ⚠️ Обязательно: имя должно совпадать с контейнером в docker-compose.yml
 
 health:
   enabled: true
@@ -212,6 +223,7 @@ routing:
     base_domain: internal.example.com
     path: /analytics
     internal_port: 3000
+    container_name: analytics-dashboard  # ⚠️ Обязательно: имя должно совпадать с контейнером в docker-compose.yml
 
 health:
   enabled: true
@@ -264,17 +276,20 @@ routing:
   - type: domain
     domain: api.multi.example.com
     internal_port: 8000
-    
+    container_name: multi-route-app-api  # ⚠️ Обязательно
+
   # Админка
   - type: domain
     domain: admin.multi.example.com
     internal_port: 8001
-    
+    container_name: multi-route-app-admin  # ⚠️ Обязательно: разные контейнеры для разных портов
+
   # Общая точка доступа
   - type: subfolder
     base_domain: apps.example.com
     path: /multi
     internal_port: 8000
+    container_name: multi-route-app-api
 
 health:
   enabled: true
@@ -303,12 +318,14 @@ routing:
   - type: domain
     domain: api.service.example.com
     internal_port: 8000
-    
+    container_name: hybrid-service-api  # ⚠️ Обязательно
+
   # Внутренняя админка
   - type: subfolder
     base_domain: internal.example.com
     path: /service-admin
     internal_port: 8001
+    container_name: hybrid-service-admin  # ⚠️ Обязательно
 
 health:
   enabled: true
@@ -339,6 +356,7 @@ routing:
     base_domain: internal.example.com
     path: /files
     internal_port: 8080
+    container_name: file-storage  # ⚠️ Обязательно
 
 health:
   enabled: true
@@ -369,6 +387,7 @@ routing:
   - type: port
     port: 8082
     internal_port: 8000
+    container_name: db-service  # ⚠️ Обязательно
 
 health:
   enabled: true
@@ -400,6 +419,7 @@ routing:
   - type: domain
     domain: shop.example.com
     internal_port: 3000
+    container_name: ecommerce-platform  # ⚠️ Обязательно
 
 health:
   enabled: true
@@ -434,6 +454,7 @@ routing:
   - type: port
     port: 6380
     internal_port: 6379
+    container_name: cache-service  # ⚠️ Обязательно
 
 health:
   enabled: true

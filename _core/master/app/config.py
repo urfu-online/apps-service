@@ -59,6 +59,12 @@ class Settings(BaseSettings):
         None, description="Пароль для репозитория Restic"
     )
 
+    # Platform domain (used for Caddy routing)
+    PLATFORM_DOMAIN: str = Field(
+        "localhost",
+        description="Основной домен платформы (например, apps.openedu.urfu.ru)"
+    )
+
     # CORS
     ALLOWED_ORIGINS: List[str] = Field(
         ["*"],

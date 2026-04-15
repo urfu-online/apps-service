@@ -116,18 +116,6 @@ class ServiceDiscovery:
         """Сканирование всех директорий сервисов"""
         self.services = {}
         
-        # 1. Сканировать core-сервисы (в _core/)
-        core_path = self.services_path.parent.parent / "_core"
-        if core_path.exists():
-            for core_dir in core_path.iterdir():
-                if core_dir.is_dir():
-                    service_yml = core_dir / "service.yml"
-                    if service_yml.exists():
-                        manifest = await self._load_service(core_dir, "internal")
-                        if manifest:
-                            self.services[manifest.name] = manifest
-        
-        # 2. Сканировать обычные сервисы (public/internal)
         for visibility in ['public', 'internal']:
             visibility_path = self.services_path / visibility
             if not visibility_path.exists():

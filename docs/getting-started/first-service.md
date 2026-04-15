@@ -1,5 +1,7 @@
 # Первый сервис
 
+> ⚠️ **Важно:** В разделе `routing` всегда указывайте `container_name` — имя Docker-контейнера, к которому Caddy должен проксировать запросы. Без этого поля Caddy будет пытаться проксировать на хост-машину (`host.docker.internal`), что создаёт конфликты портов и проблемы с безопасностью. Имя контейнера должно совпадать с `container_name` в `docker-compose.yml`.
+
 Сервис в платформе — это директория с двумя файлами: `service.yml` (манифест) и `docker-compose.yml`.
 
 ## Быстрый способ
@@ -94,6 +96,7 @@ routing:
   - type: port
     internal_port: 80
     port: 9090
+    container_name: my-app  # ⚠️ Должно совпадать с основным service.yml
 
 health:
   interval: 10s

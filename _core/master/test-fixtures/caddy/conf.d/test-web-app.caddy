@@ -1,0 +1,24 @@
+# Service: test-web-app | Version: 1.0.0
+# Generated: 2026-04-15T05:47:22.273166+00:00
+
+
+test-web.example.com {
+    import common_headers
+    import logging test-web-app domain
+
+    
+
+    
+    reverse_proxy http://test-web-app:80 {
+    
+        
+        health_uri /health
+        health_interval 30s
+        
+
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Service-Name test-web-app
+    }
+}

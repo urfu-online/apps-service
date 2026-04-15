@@ -30,6 +30,20 @@ class CaddyManager:
         
         self.caddy_api_url = "http://caddy:2019"
     
+    def _replace_env_vars(self, text: str) -> str:
+        """Замена переменных окружения в строке вида ${VAR:-default}."""
+        import re
+        import os
+        
+        def replace(match):
+            var_name = match.group(1)
+            default = match.group(2) if match.group(2) else ''
+            value = os.getenv(var_name, default)
+            return value
+        
+        pattern = r'\$\{([A-Za-z0-9_]+)(?:\:-([^}]*))?\}'
+        return re.sub(pattern, replace, text)
+
     async def regenerate_all(self, services: Dict[str, ServiceManifest]):
         """Перегенерация всех конфигов сервисов"""
         # Удаляем старые конфиги (все .caddy кроме _subfolder_*.caddy.inc — ручных)
@@ -50,7 +64,7 @@ class CaddyManager:
                 if route.type == "domain":
                     domain_services.append((service, route))
                 elif route.type == "subfolder":
-                    base = route.base_domain
+                    base = self._replace_env_vars(route.base_domain)
                     if base not in subfolder_services:
                         subfolder_services[base] = []
                     subfolder_services[base].append((service, route))
@@ -84,9 +98,13 @@ class CaddyManager:
             logger.error(f"Template domain.caddy.j2 not found: {e}")
             return
 
+        # Заменяем переменные окружения в домене
+        domain = self._replace_env_vars(route.domain) if route.domain else None
+
         content = template.render(
             service=service,
             route=route,
+            domain=domain,
             generated_at=datetime.now(timezone.utc).isoformat()
         )
 
@@ -94,7 +112,7 @@ class CaddyManager:
         domain_routes = [r for r in service.routing if r.type == "domain"]
         if len(domain_routes) > 1:
             # Несколько доменов: support_help.openedu.urfu.ru.caddy
-            safe_domain = route.domain.replace(".", "_")
+            safe_domain = domain.replace(".", "_") if domain else "unknown"
             config_file = self.conf_d / f"{service.name}_{safe_domain}.caddy"
         else:
             config_file = self.conf_d / f"{service.name}.caddy"
@@ -102,11 +120,11 @@ class CaddyManager:
         async with aiofiles.open(config_file, 'w') as f:
             await f.write(content)
 
-        logger.info(f"Generated domain config for {service.name} -> {route.domain}")
+        logger.info(f"Generated domain config for {service.name} -> {domain}")
     
     async def _generate_subfolder_config(
-        self, 
-        base_domain: str, 
+        self,
+        base_domain: str,
         svc_routes: list
     ):
         """Генерация конфига для подпапок одного домена"""
@@ -116,20 +134,23 @@ class CaddyManager:
             logger.error(f"Template subfolder.caddy.j2 not found: {e}")
             return
         
+        # Заменяем переменные окружения в base_domain
+        resolved_base_domain = self._replace_env_vars(base_domain)
+        
         content = template.render(
-            base_domain=base_domain,
+            base_domain=resolved_base_domain,
             services=svc_routes,
             generated_at=datetime.now(timezone.utc).isoformat()
         )
         
         # Санитизация имени файла
-        safe_domain = base_domain.replace(".", "_")
+        safe_domain = resolved_base_domain.replace(".", "_")
         config_file = self.conf_d / f"_subfolder_{safe_domain}.caddy"
         
         async with aiofiles.open(config_file, 'w') as f:
             await f.write(content)
         
-        logger.info(f"Generated subfolder config for {base_domain}")
+        logger.info(f"Generated subfolder config for {resolved_base_domain}")
     
     async def _generate_port_config(self, service: ServiceManifest, route):
         """Генерация конфига для порта"""

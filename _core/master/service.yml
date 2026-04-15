@@ -1,0 +1,30 @@
+name: platform-master
+display_name: Platform Master
+version: "1.0.0"
+description: Центральный сервис управления платформой
+type: docker-compose
+visibility: internal
+routing:
+  - type: subfolder
+    base_domain: ${PLATFORM_DOMAIN:-localhost}
+    path: /admin
+    internal_port: 8001
+    container_name: platform-master
+    strip_prefix: true
+health:
+  enabled: true
+  endpoint: /healthz
+  interval: 30s
+  timeout: 10s
+  retries: 3
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retention: 7
+  paths:
+    - /app/master.db
+  databases: []
+tags:
+  - core
+  - management
+  - internal
