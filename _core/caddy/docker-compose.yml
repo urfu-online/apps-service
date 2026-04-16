@@ -21,7 +21,7 @@ services:
       - ./config:/config
       - ./logs:/var/log/caddy
       # Development config (only mounted in dev)
-      - ./development.caddy:/etc/caddy/conf.d/development.caddy:ro
+      # - ./development.caddy:/etc/caddy/conf.d/development.caddy:ro
     networks:
       - platform
 

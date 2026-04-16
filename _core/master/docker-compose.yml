@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Docker Compose configuration for Platform Master Service
 #
 # This configuration supports both builtin and external authentication providers.
