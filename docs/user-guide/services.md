@@ -54,13 +54,19 @@ visibility: public    # public | internal
 
 # === МАРШРУТИЗАЦИЯ ===
 routing:
-  # Вариант 1: Отдельный домен
+  # Вариант 1: Автоматический поддомен (по умолчанию)
+  - auto_subdomain: true
+    base_domain: apps.urfu.online
+    internal_port: 8000
+    container_name: my-service  # ⚠️ Обязательно: имя Docker-контейнера
+
+  # Вариант 2: Свой домен
   - type: domain
     domain: myservice.example.com
     internal_port: 8000
     container_name: my-service  # ⚠️ Обязательно: имя Docker-контейнера
 
-  # Вариант 2: Подпапка
+  # Вариант 3: Подпапка
   - type: subfolder
     base_domain: apps.example.com
     path: /my-service
@@ -68,7 +74,7 @@ routing:
     internal_port: 8000
     container_name: my-service  # ⚠️ Обязательно: имя Docker-контейнера
 
-  # Вариант 3: Порт (внутренний/тестовый)
+  # Вариант 4: Порт (внутренний/тестовый)
   - type: port
     port: 8081
     internal_port: 8000
@@ -122,12 +128,12 @@ dependencies:
 # === ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (дефолты) ===
 environment:
   LOG_LEVEL: info
-  
+
 # === СЕКРЕТЫ (ссылки) ===
 secrets:
   - DATABASE_URL
   - API_KEY
-  
+
 # === ХУКИ ===
 hooks:
   post_deploy:
@@ -144,25 +150,53 @@ notifications:
     - health_fail
 ```
 
-## 3. Настройка маршрутизации (домен, подпапка, порт)
+## 3. Настройка маршрутизации
 
-Платформа поддерживает три типа маршрутизации.
+Платформа поддерживает четыре типа маршрутизации. **Автоматические поддомены** — способ интеграции по умолчанию.
 
 !!! warning "`container_name` обязателен для всех сервисов"
     Без `container_name` Caddy проксирует на `host.docker.internal:<port>` — на хост-машину.
     Это legacy-режим: обход SSL, auth, rate limit; конфликты портов; дырка в безопасности.
     **Указывайте `container_name` всегда.** Имя должно совпадать с контейнером в `docker-compose.yml`.
 
-### Отдельный домен
+### Автоматический поддомен (по умолчанию)
+
+```yaml
+routing:
+  - auto_subdomain: true
+    base_domain: apps.urfu.online
+    internal_port: 8000
+    container_name: my-service
+```
+
+Сервис будет доступен по адресу `https://my-service.apps.urfu.online`.
+
+Преимущества:
+- ✅ Не нужно настраивать DNS — поддомен создаётся автоматически
+- ✅ SSL-сертификат выпускается автоматически при первом запросе
+- ✅ Zero-touch интеграция — просто деплойте сервис
+
+Как это работает:
+1. При деплое платформа генерирует Caddy-конфиг для `{name}.{base_domain}`
+2. При первом HTTPS-запросе Caddy выполняет ACME challenge
+3. Платформа валидирует домен через внутренний API `/api/tls/validate`
+4. Caddy выпускает SSL-сертификат
+
+### Свой домен
 
 ```yaml
 routing:
   - type: domain
     domain: myservice.example.com
     internal_port: 8000
+    container_name: my-service
 ```
 
 Сервис будет доступен по адресу `https://myservice.example.com`.
+
+При использовании своего домена:
+1. Настройте DNS A-запись на IP сервера платформы
+2. Caddy автоматически получит SSL-сертификат через Let's Encrypt
 
 ### Подпапка
 
@@ -173,6 +207,7 @@ routing:
     path: /my-service
     strip_prefix: true
     internal_port: 8000
+    container_name: my-service
 ```
 
 Сервис будет доступен по адресу `https://apps.example.com/my-service`.
@@ -184,6 +219,7 @@ routing:
   - type: port
     port: 8081
     internal_port: 8000
+    container_name: my-service
 ```
 
 Сервис будет доступен по адресу `https://apps.example.com:8081`.

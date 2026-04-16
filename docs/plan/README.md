@@ -19,3 +19,4 @@
 | ↳ [#28](https://github.com/urfu-online/apps-service/issues/28) | ↳ 11d: Валидация конфигурации | 🟠 Средний | ⬜ | |
 | ↳ [#29](https://github.com/urfu-online/apps-service/issues/29) | ↳ 11e: Обновить документацию | 🟡 Низкий | ⬜ | |
 | ↳ [#30](https://github.com/urfu-online/apps-service/issues/30) | ↳ 11f: Ограничить legacy-режим | 🟠 Средний | ⬜ | |
+| [#37](https://github.com/urfu-online/apps-service/issues/37) | **Auto-subdomain** — автоматические домены + SSL | 🔴 Критично | ⬜ | [→](12-auto-subdomain.md) |

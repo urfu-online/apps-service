@@ -32,9 +32,10 @@ description: "Мой первый сервис на платформе"
 type: docker-compose
 visibility: public
 
+# Автоматический поддомен (стандартное поведение)
 routing:
-  - type: domain
-    domain: myapp.example.com
+  - auto_subdomain: true
+    base_domain: apps.urfu.online
     internal_port: 80
     container_name: my-app
 
@@ -82,8 +83,36 @@ platform list
 
 Сервис появится:
 - ✅ В UI Master Service (`http://localhost:8001`)
-- ✅ В роутинге Caddy (автогенерация из `service.yml`)
+- ✅ В роутинге Caddy с автоподдоменом `https://my-app.apps.urfu.online`
+- ✅ С автоматическим SSL-сертификатом (выпускается при первом запросе)
 - ✅ В health check мониторинге (каждые 30s)
+
+## Как работают автоподдомены
+
+Платформа автоматически назначает каждому публичному сервису поддомен вида `{service-name}.apps.urfu.online`:
+
+1. При деплое CaddyManager генерирует конфиг для поддомена
+2. При первом HTTPS-запросе Caddy выполняет ACME challenge
+3. Платформа валидирует домен через `/api/tls/validate`
+4. Caddy выпускает SSL-сертификат автоматически
+
+Вам не нужно настраивать DNS или заказывать сертификаты — всё работает из коробки.
+
+## Свой домен (опционально)
+
+Если нужен кастомный домен вместо автоподдомена:
+
+```yaml
+routing:
+  - type: domain
+    domain: myapp.example.com
+    internal_port: 80
+    container_name: my-app
+```
+
+При использовании своего домена:
+1. Настройте DNS A-запись на IP сервера
+2. Caddy автоматически получит SSL-сертификат через Let's Encrypt
 
 ## Local override
 
@@ -107,5 +136,5 @@ health:
 ## Что дальше
 
 - [Управление сервисами](../user-guide/services.md) — все команды CLI
-- [Типы роутинга](../user-guide/services.md) — домен, подпапка, порт
+- [Типы роутинга](../user-guide/services.md) — автодомен, свой домен, подпапка, порт
 - [Примеры](../examples.md) — готовые конфиги для разных типов сервисов

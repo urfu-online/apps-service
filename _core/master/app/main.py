@@ -13,7 +13,7 @@ from app.services.notifier import TelegramNotifier
 from app.services.docker_manager import DockerManager
 from app.services.backup_manager import BackupManager
 from app.services.log_manager import LogManager
-from app.api.routes import services, deployments, logs, backups, health, users
+from app.api.routes import services, deployments, logs, backups, health, users, tls
 
 
 # ──────────────────────────────────────────────
@@ -131,6 +131,7 @@ routers = [
     (backups.router, "/api/backups", ["backups"]),
     (health.router, "/api/health", ["health"]),
     (users.router, "/api/users", ["users"]),
+    (tls.router, "/api/tls", ["tls"]),
 ]
 
 for router, prefix, tags in routers:

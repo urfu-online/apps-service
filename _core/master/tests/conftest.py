@@ -94,3 +94,90 @@ def sample_service_manifest():
         path=Path("/test/path"),
         status="running",
     )
+
+
+@pytest.fixture
+def mock_discovery():
+    """Мокированный ServiceDiscovery для тестов."""
+    from app.services.discovery import ServiceDiscovery, ServiceManifest, RoutingConfigModel
+
+    discovery = MagicMock(spec=ServiceDiscovery)
+
+    # Create test services
+    route1 = RoutingConfigModel(
+        type="domain",
+        auto_subdomain=True,
+        auto_subdomain_base="apps.urfu.online",
+        internal_port=8000,
+        container_name="test-auto-svc"
+    )
+    service1 = ServiceManifest(
+        name="test-auto-svc",
+        display_name="Test Auto Service",
+        routing=[route1]
+    )
+
+    route2 = RoutingConfigModel(
+        type="domain",
+        domain="explicit.example.com",
+        auto_subdomain=False
+    )
+    service2 = ServiceManifest(
+        name="explicit-svc",
+        display_name="Explicit Domain Service",
+        routing=[route2]
+    )
+
+    discovery.services = {
+        "test-auto-svc": service1,
+        "explicit-svc": service2
+    }
+
+    # Mock validate_domain
+    def mock_validate(domain):
+        for svc in discovery.services.values():
+            for route in svc.routing:
+                if route.domain == domain:
+                    return (True, svc.name)
+                if route.auto_subdomain:
+                    expected = f"{svc.name}.{route.auto_subdomain_base}"
+                    if domain == expected:
+                        return (True, svc.name)
+        return (False, None)
+
+    discovery.validate_domain = mock_validate
+
+    # Mock get_allowed_domains
+    def mock_allowed():
+        allowed = set()
+        for svc in discovery.services.values():
+            for route in svc.routing:
+                if route.domain:
+                    allowed.add(route.domain)
+                if route.auto_subdomain:
+                    allowed.add(f"{svc.name}.{route.auto_subdomain_base}")
+        return allowed
+
+    discovery.get_allowed_domains = mock_allowed
+
+    return discovery
+
+
+@pytest.fixture
+def app_with_mock_discovery(mock_discovery):
+    """Тестовое приложение с mock discovery."""
+    from app.main import app
+
+    # Store original state
+    original_discovery = getattr(app.state, 'discovery', None)
+
+    # Set mock
+    app.state.discovery = mock_discovery
+
+    yield app
+
+    # Restore original state
+    if original_discovery:
+        app.state.discovery = original_discovery
+    elif hasattr(app.state, 'discovery'):
+        delattr(app.state, 'discovery')

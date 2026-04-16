@@ -1,0 +1,11 @@
+# ACME logging for on_demand_tls certificate issuance
+# Include in site blocks that use on_demand_tls
+
+log {
+    output file /var/log/caddy/acme.log {
+        roll_size 50mb
+        roll_keep 5
+    }
+    format json
+    level INFO
+}

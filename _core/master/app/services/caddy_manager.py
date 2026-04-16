@@ -53,15 +53,19 @@ class CaddyManager:
             # Также удаляем старые _subfolder если они были сгенерированы (не .inc)
             elif old_conf.name.startswith("_subfolder_") and not old_conf.name.endswith(".caddy.inc"):
                 old_conf.unlink()
-        
+
         # Группируем сервисы по типу routing
         domain_services = []
         subfolder_services = {}  # base_domain -> list of services
         port_services = []
-        
+        auto_subdomain_services = []  # сервисы с автоматическими поддоменами
+
         for service in services.values():
             for route in service.routing:
-                if route.type == "domain":
+                # Обработка auto_subdomain
+                if route.auto_subdomain:
+                    auto_subdomain_services.append((service, route))
+                elif route.type == "domain":
                     domain_services.append((service, route))
                 elif route.type == "subfolder":
                     base = self._replace_env_vars(route.base_domain)
@@ -70,22 +74,55 @@ class CaddyManager:
                     subfolder_services[base].append((service, route))
                 elif route.type == "port":
                     port_services.append((service, route))
-        
+
+        # Генерируем конфиги для auto_subdomain
+        for service, route in auto_subdomain_services:
+            await self._generate_auto_subdomain_config(service, route)
+
         # Генерируем конфиги для отдельных доменов
         for service, route in domain_services:
             await self._generate_domain_config(service, route)
-        
+
         # Генерируем конфиги для подпапок (группируем по base_domain)
         for base_domain, svc_routes in subfolder_services.items():
             await self._generate_subfolder_config(base_domain, svc_routes)
-        
+
         # Генерируем конфиги для портов
         for service, route in port_services:
             await self._generate_port_config(service, route)
-        
+
         # Перезагружаем Caddy
         await self.reload_caddy()
-    
+
+    async def _generate_auto_subdomain_config(
+        self,
+        service: ServiceManifest,
+        route
+    ):
+        """Генерация конфига для автоматического поддомена"""
+        try:
+            template = self.jinja.get_template("auto_subdomain.caddy.j2")
+        except Exception as e:
+            logger.error(f"Template auto_subdomain.caddy.j2 not found: {e}")
+            return
+
+        base_domain = route.auto_subdomain_base
+        full_domain = f"{service.name}.{base_domain}"
+
+        content = template.render(
+            service=service,
+            route=route,
+            base_domain=base_domain,
+            domain=full_domain,
+            generated_at=datetime.now(timezone.utc).isoformat()
+        )
+
+        config_file = self.conf_d / f"{service.name}_auto.caddy"
+        async with aiofiles.open(config_file, 'w') as f:
+            await f.write(content)
+
+        logger.info(f"Generated auto_subdomain config for {service.name} -> {full_domain}")
+
     async def _generate_domain_config(
         self,
         service: ServiceManifest,

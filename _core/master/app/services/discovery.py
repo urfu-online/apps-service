@@ -49,6 +49,8 @@ class RoutingConfigModel(BaseModel):
     strip_prefix: bool = True
     internal_port: int = 8000
     container_name: Optional[str] = None  # Имя контейнера для прямого проксирования
+    auto_subdomain: bool = False  # Автоматический поддомен {name}.apps.urfu.online
+    auto_subdomain_base: str = "apps.urfu.online"  # Базовый домен для auto_subdomain
 
 
 class HealthConfigModel(BaseModel):
@@ -223,7 +225,7 @@ class ServiceDiscovery:
         return self.services.get(name)
     
     def get_services_by_visibility(
-        self, 
+        self,
         visibility: str
     ) -> Dict[str, ServiceManifest]:
         """Получение сервисов по видимости"""
@@ -231,6 +233,37 @@ class ServiceDiscovery:
             name: svc for name, svc in self.services.items()
             if svc.visibility == visibility
         }
+
+    def get_allowed_domains(self) -> set[str]:
+        """Получение множества разрешённых доменов для TLS валидации"""
+        allowed = set()
+        for service in self.services.values():
+            for route in service.routing:
+                # Явно указанный домен
+                if route.domain:
+                    allowed.add(route.domain)
+                # Автоматический поддомен
+                if route.auto_subdomain:
+                    allowed.add(f"{service.name}.{route.auto_subdomain_base}")
+        return allowed
+
+    def validate_domain(self, domain: str) -> tuple[bool, Optional[str]]:
+        """
+        Валидация домена для on_demand_tls.
+
+        Returns:
+            (is_valid, service_name) — валиден ли домен и имя сервиса
+        """
+        # Проверка по явным доменам
+        for service in self.services.values():
+            for route in service.routing:
+                if route.domain == domain:
+                    return (True, service.name)
+                if route.auto_subdomain:
+                    expected = f"{service.name}.{route.auto_subdomain_base}"
+                    if domain == expected:
+                        return (True, service.name)
+        return (False, None)
     
     async def sync_with_database(self):
         """Синхронизация обнаруженных сервисов с базой данных"""
