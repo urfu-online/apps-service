@@ -6,7 +6,7 @@
 
 Caddy используется как reverse proxy для маршрутизации трафика к сервисам платформы. Конфигурация генерируется автоматически на основе манифестов сервисов (`service.yml`).
 
-Платформа использует **автоматические поддомены** (`{service}.apps.urfu.online`) как основной интеграции. При первом HTTPS-запросе Caddy автоматически выпускает SSL-сертификат через Let's Encrypt.
+Платформа использует **автоматические поддомены** (`{service}.{base_domain}`) как основной механизм интеграции. При первом HTTPS-запросе Caddy автоматически выпускает SSL-сертификат через Let's Encrypt.
 
 ## Переменные окружения
 
@@ -59,7 +59,7 @@ environment:
 
 ```
 1. Деплой сервиса с auto_subdomain: true
-2. CaddyManager генерирует {name}.apps.urfu.online.caddy
+2. CaddyManager генерирует {name}.{base_domain}.caddy
 3. Caddy загружает конфиг через Admin API
 4. Первый HTTPS-запрос → ACME challenge
 5. Caddy вызывает /api/tls/validate?domain=...
@@ -71,12 +71,21 @@ environment:
 
 ```python
 class RoutingConfigModel(BaseModel):
-    type: str  # auto_subdomain | domain | subfolder | port
-    auto_subdomain: bool = True 
-    base_domain: str = "apps.urfu.online"
-    internal_port: int = 8000
-    container_name: str  # Обязательно
+    type: Literal["auto_subdomain", "domain", "subfolder", "port"]
+    base_domain: str = "apps.urfu.online"  # Используется при type=auto_subdomain
+    domain: Optional[str] = None           # Используется при type=domain
+    path: Optional[str] = None             # Используется при type=subfolder
+    port: Optional[int] = None             # Используется при type=port
+    internal_port: int = 8000              # Порт внутри контейнера
+    container_name: str                    # Имя Docker-контейнера для reverse_proxy
+    strip_prefix: bool = False             # Удалять path-prefix при проксировании
 ```
+
+**Логика формирования домена:**
+- Если `type: auto_subdomain` → домен = `{service_name}.{base_domain}`
+- Если `type: domain` → домен = `domain` (явно заданный)
+- Если `type: subfolder` → маршрут = `{base_domain}{path}`
+- Если `type: port` → доступ по `:{port}` без домена
 
 ### Эндпоинт валидации TLS
 
@@ -87,14 +96,14 @@ async def validate_tls_domain(domain: str, discovery: ServiceDiscovery):
     Валидация домена для on_demand_tls.
     Возвращает 200 если домен разрешён, 403 если нет.
     """
-    # Проверка формата
-    if not domain.endswith(".apps.urfu.online"):
+    # Проверка формата: домен должен заканчиваться на .{base_domain}
+    if not domain.endswith(f".{base_domain}"):
         raise HTTPException(403, "Domain not in allowed zone")
 
-    # Извлечение имени сервиса
-    service_name = domain.rsplit(".apps.urfu.online", 1)[0]
+    # Извлечение имени сервиса: my-svc.apps.urfu.online → my-svc
+    service_name = domain.rsplit(f".{base_domain}", 1)[0]
 
-    # Проверка регистрации
+    # Проверка регистрации сервиса в реестре платформы
     if service_name not in discovery.services:
         raise HTTPException(403, "Service not registered")
 
@@ -106,7 +115,7 @@ async def validate_tls_domain(domain: str, discovery: ServiceDiscovery):
 ```caddy
 {
     email admin@urfu.online
-    admin 0.0.0.0:2019
+    admin 0.0.0.0:2019  # TODO: internal-only. 127.0.0.1
 
     on_demand_tls {
         ask http://master:8000/api/tls/validate
@@ -114,7 +123,7 @@ async def validate_tls_domain(domain: str, discovery: ServiceDiscovery):
 }
 
 # Wildcard-конфигурация для автоподдоменов
-*.apps.urfu.online {
+*.{$PLATFORM_DOMAIN} {
     tls { on_demand }
 
     log {
@@ -162,11 +171,16 @@ docker compose -f _core/caddy/docker-compose.yml exec caddy \
 
 ## Требования к сервисам
 
-- По умолчанию все сервисы получают автоматический поддомен (`{name}.apps.urfu.online`)
+- По умолчанию все сервисы получают автоматический поддомен (`{name}.{base_domain}`)
 - Все сервисы должны иметь `service.yml` с полем `health.endpoint`
 - Обязательно указывать `container_name` для правильной маршрутизации
 - Внутренние сервисы (`services/internal/`) не проксируются наружу
 - Генерация конфигов — через `CaddyManager` в Master Service
+
+### TODO: Пререквизиты инфраструктуры
+- [ ] Настройка DNS: wildcard A-record для `*.{PLATFORM_DOMAIN}` → IP Caddy
+- [ ] Открытие портов 80/443 на внешнем интерфейсе для ACME HTTP-01 challenge
+- [ ] Документирование процесса добавления новых базовых доменов
 
 ### Пример service.yml с автоподдоменом
 
@@ -175,15 +189,18 @@ name: my-service
 visibility: public
 
 routing:
-  - auto_subdomain: true
-    base_domain: apps.urfu.online
-    internal_port: 8000
-    container_name: my-service
+  type: auto_subdomain
+  base_domain: apps.urfu.online
+  internal_port: 8000
+  container_name: my-service
 
 health:
   enabled: true
   endpoint: /health
 ```
+
+### TODO: Поведение для базового домена
+- [ ] Определить стратегию обработки запросов к `{base_domain}` (без поддомена): отдельный сервис-лендинг, редирект, или 404.
 
 ## См. также
 
