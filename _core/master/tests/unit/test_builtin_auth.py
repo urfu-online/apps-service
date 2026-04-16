@@ -1,185 +1,156 @@
-"""Тесты для BuiltInAuthProvider."""
+"""Тесты для встроенного провайдера аутентификации."""
 import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, Mock, MagicMock, patch
+from app.models.user import User
 from app.core.security import BuiltInAuthProvider
-from app.models.user import User, Role
 
 
-@pytest.fixture
-def builtin_auth_provider():
-    """Фикстура для создания экземпляра BuiltInAuthProvider"""
-    return BuiltInAuthProvider()
+class TestBuiltInAuthProvider:
+    """Тесты встроенного провайдера аутентификации."""
 
+    @pytest.fixture
+    def mock_auth_provider(self):
+        """Фикстура для создания провайдера аутентификации."""
+        return BuiltInAuthProvider()
 
-@pytest.fixture
-def mock_user():
-    """Фикстура для создания мок-пользователя"""
-    user = Mock(spec=User)
-    user.id = 1
-    user.username = "testuser"
-    user.email = "testuser@example.com"
-    user.is_active = True
-    user.is_superuser = False
-    user.hashed_password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj/RK.PZvO.S"  # bcrypt хэш для "testpass"
-    user.roles = [Mock(spec=Role)]
-    user.roles[0].name = "user"
-    return user
+    @pytest.mark.asyncio
+    async def test_authenticate_success(self, mock_auth_provider):
+        """Тест успешной аутентификации."""
+        # Подготавливаем моки
+        with patch("app.models.user.User") as MockUser:
+            # Мокаем сессию БД
+            mock_session = MagicMock()
+            mock_query = MagicMock()
+            
+            mock_user = MagicMock(spec=User)
+            mock_user.check_password.return_value = True
+            mock_user.to_dict.return_value = {"id": 1, "username": "testuser", "is_active": True}
+            
+            mock_query.first.return_value = mock_user
+            mock_session.query.return_value.filter.return_value = mock_query
+            
+            with patch("app.core.database.SessionLocal") as mock_session_class:
+                mock_session_class.return_value.__enter__.return_value = mock_session
+                result = await mock_auth_provider.authenticate("testuser", "correctpassword")
 
+            assert result is not None
+            assert result["username"] == "testuser"
+            assert result["id"] == 1
 
-@pytest.mark.asyncio
-async def test_builtin_authenticate_success(builtin_auth_provider, mock_user):
-    """Тест успешной аутентификации через встроенный провайдер"""
-    # Мокаем get_db и bcrypt
-    with patch('app.core.security.get_db') as mock_get_db, \
-         patch('app.core.security.bcrypt') as mock_bcrypt:
+    @pytest.mark.asyncio
+    async def test_authenticate_user_not_found(self, mock_auth_provider):
+        """Тест аутентификации с несуществующим пользователем."""
+        with patch("app.models.user.User") as MockUser:
+            mock_session = MagicMock()
+            mock_query = MagicMock()
+            mock_query.first.return_value = None  # Пользователь не найден
+            
+            mock_session.query.return_value.filter.return_value = mock_query
+            
+            with patch("app.core.database.SessionLocal") as mock_session_class:
+                mock_session_class.return_value.__enter__.return_value = mock_session
+                result = await mock_auth_provider.authenticate("nonexistent", "password")
+            
+            assert result is None
+
+    @pytest.mark.asyncio
+    async def test_authenticate_wrong_password(self, mock_auth_provider):
+        """Тест аутентификации с неверным паролем."""
+        # Мокаем сессию БД
+        mock_session = MagicMock()
+        mock_query = MagicMock()
         
-        # Настраиваем моки
-        mock_db = Mock()
-        mock_query = Mock()
-        mock_get_db.return_value.__next__.return_value = mock_db
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
-        mock_bcrypt.checkpw.return_value = True
+        mock_user = MagicMock(spec=User)
+        mock_user.check_password.return_value = False
         
-        # Выполняем тест
-        result = await builtin_auth_provider.authenticate("testuser", "testpass")
+        mock_query.first.return_value = mock_user
+        mock_session.query.return_value.filter.return_value = mock_query
         
-        # Проверяем результат
-        assert result is not None
-        assert result['username'] == 'testuser'
-        assert result['email'] == 'testuser@example.com'
-        assert result['is_active'] is True
-        assert 'user' in result['roles']
-
-
-@pytest.mark.asyncio
-async def test_builtin_authenticate_user_not_found(builtin_auth_provider):
-    """Тест аутентификации с несуществующим пользователем"""
-    # Мокаем get_db
-    with patch('app.core.security.get_db') as mock_get_db:
-        # Настраиваем моки
-        mock_db = Mock()
-        mock_query = Mock()
-        mock_get_db.return_value.__next__.return_value = mock_db
-        mock_db.query.return_value.filter.return_value.first.return_value = None
+        with patch("app.core.database.SessionLocal") as mock_session_class:
+            mock_session_class.return_value.__enter__.return_value = mock_session
+            result = await mock_auth_provider.authenticate("testuser", "wrongpassword")
         
-        # Выполняем тест
-        result = await builtin_auth_provider.authenticate("nonexistent", "testpass")
-        
-        # Проверяем результат
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_get_current_user_success(self, mock_auth_provider):
+        """Тест получения текущего пользователя по токену."""
+        mock_session = MagicMock()
+        mock_query = MagicMock()
+        
+        mock_user = MagicMock(spec=User)
+        mock_user.to_dict.return_value = {"id": 1, "username": "testuser", "is_active": True}
+        mock_query.first.return_value = mock_user
+        
+        mock_session.query.return_value.filter.return_value = mock_query
+        
+        with patch("app.core.database.SessionLocal") as mock_session_class:
+            mock_session_class.return_value.__enter__.return_value = mock_session
+            result = await mock_auth_provider.get_current_user("1")
+        
+        assert result is not None
+        assert result["username"] == "testuser"
+        assert result["id"] == 1
 
-@pytest.mark.asyncio
-async def test_builtin_authenticate_wrong_password(builtin_auth_provider, mock_user):
-    """Тест аутентификации с неправильным паролем"""
-    # Мокаем get_db и bcrypt
-    with patch('app.core.security.get_db') as mock_get_db, \
-         patch('app.core.security.bcrypt') as mock_bcrypt:
+    @pytest.mark.asyncio
+    async def test_get_current_user_invalid_token(self, mock_auth_provider):
+        """Тест получения пользователя с невалидным токеном."""
+        # Мокаем сессию БД
+        mock_session = MagicMock()
+        mock_session.query.return_value.filter.return_value.first.return_value = None
         
-        # Настраиваем моки
-        mock_db = Mock()
-        mock_query = Mock()
-        mock_get_db.return_value.__next__.return_value = mock_db
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
-        mock_bcrypt.checkpw.return_value = False  # Неправильный пароль
+        with patch("app.core.database.SessionLocal") as mock_session_class:
+            mock_session_class.return_value.__enter__.return_value = mock_session
+            result = await mock_auth_provider.get_current_user("invalid_token")
         
-        # Выполняем тест
-        result = await builtin_auth_provider.authenticate("testuser", "wrongpass")
-        
-        # Проверяем результат
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_create_user_success(self, mock_auth_provider):
+        """Тест создания пользователя."""
+        mock_session = MagicMock()
+        # Мокаем проверку существования пользователя (изначально None - не существует)
+        mock_session.query.return_value.filter.return_value.first.return_value = None
 
-@pytest.mark.asyncio
-async def test_builtin_get_current_user_success(builtin_auth_provider, mock_user):
-    """Тест успешного получения текущего пользователя через встроенный провайдер"""
-    # Мокаем get_db
-    with patch('app.core.security.get_db') as mock_get_db:
-        # Настраиваем моки
-        mock_db = Mock()
-        mock_query = Mock()
-        mock_get_db.return_value.__next__.return_value = mock_db
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_user
+        # Мокаем новый объект пользователя
+        new_user = MagicMock()
+        new_user.id = 1
+        new_user.username = "newuser"
+        new_user.to_dict.return_value = {
+            "id": 1,
+            "username": "newuser",
+            "email": "newuser@example.com",
+            "is_active": True,
+            "is_superuser": False
+        }
         
-        # Выполняем тест
-        result = await builtin_auth_provider.get_current_user("1")
+        with patch("app.models.user.User") as MockUserClass:
+            MockUserClass.return_value = new_user
+            MockUserClass.username = MagicMock()
+            MockUserClass.password = MagicMock()
+            MockUserClass.email = MagicMock()
+            MockUserClass.is_superuser = MagicMock()
+            
+            with patch("app.core.database.SessionLocal") as mock_session_class:
+                mock_session_class.return_value.__enter__.return_value = mock_session
+                result = await mock_auth_provider.create_user("newuser", "password", [])
+                
+            # Убеждаемся, что добавили пользователя в сессию и зафиксировали
+            mock_session.add.assert_called_once_with(new_user)
+            mock_session.commit.assert_called_once()
         
-        # Проверяем результат
         assert result is not None
-        assert result['username'] == 'testuser'
-        assert result['email'] == 'testuser@example.com'
-        assert result['is_active'] is True
-        assert 'user' in result['roles']
+        assert result["username"] == "newuser"
 
-
-@pytest.mark.asyncio
-async def test_builtin_get_current_user_not_found(builtin_auth_provider):
-    """Тест получения текущего пользователя с несуществующим ID"""
-    # Мокаем get_db
-    with patch('app.core.security.get_db') as mock_get_db:
-        # Настраиваем моки
-        mock_db = Mock()
-        mock_query = Mock()
-        mock_get_db.return_value.__next__.return_value = mock_db
-        mock_db.query.return_value.filter.return_value.first.return_value = None
+    @pytest.mark.asyncio
+    async def test_create_user_already_exists(self, mock_auth_provider):
+        """Тест создания уже существующего пользователя."""
+        mock_session = MagicMock()
+        existing_user = MagicMock()
+        mock_session.query.return_value.filter.return_value.first.return_value = existing_user
         
-        # Выполняем тест
-        result = await builtin_auth_provider.get_current_user("999")
+        with patch("app.core.database.SessionLocal") as mock_session_class:
+            mock_session_class.return_value.__enter__.return_value = mock_session
+            result = await mock_auth_provider.create_user("existinguser", "password", [])
         
-        # Проверяем результат
-        assert result is None
-
-
-@pytest.mark.asyncio
-async def test_builtin_create_user_success(builtin_auth_provider):
-    """Тест успешного создания пользователя через встроенный провайдер"""
-    # Мокаем get_db и bcrypt
-    with patch('app.core.security.get_db') as mock_get_db, \
-         patch('app.core.security.bcrypt') as mock_bcrypt:
-        
-        # Настраиваем моки
-        mock_db = Mock()
-        mock_query = Mock()
-        mock_user = Mock(spec=User)
-        mock_user.id = 2
-        mock_user.username = "newuser"
-        mock_user.email = "newuser@example.com"
-        mock_user.is_active = True
-        mock_user.is_superuser = False
-        mock_user.roles = []
-        
-        mock_get_db.return_value.__next__.return_value = mock_db
-        mock_db.query.return_value.filter.return_value.first.return_value = None  # Пользователь не существует
-        mock_bcrypt.hashpw.return_value = b"hashed_password"
-        mock_db.add = Mock()
-        mock_db.commit = Mock()
-        mock_db.refresh = Mock()
-        mock_db.refresh.side_effect = lambda x: setattr(x, 'id', 2)  # Устанавливаем ID после "сохранения"
-        
-        # Выполняем тест
-        result = await builtin_auth_provider.create_user("newuser", "newpass", ["user"])
-        
-        # Проверяем результат
-        assert result is not None
-        assert result['username'] == 'newuser'
-        assert result['email'] == 'newuser@example.com'
-        assert result['is_active'] is True
-        assert 'user' in result['roles']
-
-
-@pytest.mark.asyncio
-async def test_builtin_create_user_already_exists(builtin_auth_provider, mock_user):
-    """Тест создания пользователя, который уже существует"""
-    # Мокаем get_db
-    with patch('app.core.security.get_db') as mock_get_db:
-        # Настраиваем моки
-        mock_db = Mock()
-        mock_query = Mock()
-        mock_get_db.return_value.__next__.return_value = mock_db
-        mock_db.query.return_value.filter.return_value.first.return_value = mock_user  # Пользователь уже существует
-        
-        # Выполняем тест
-        result = await builtin_auth_provider.create_user("testuser", "newpass", ["user"])
-        
-        # Проверяем результат
         assert result is None

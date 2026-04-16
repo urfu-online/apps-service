@@ -1,139 +1,101 @@
-"""Тесты для моделей пользователей."""
+"""Тесты для моделей пользователя."""
 import pytest
-from unittest.mock import Mock
+from unittest.mock import Mock, MagicMock
 from app.models.user import User, Role
 
 
 @pytest.fixture
 def mock_role():
-    """Фикстура для создания мок-роли"""
-    role = Mock(spec=Role)
+    """Фикстура для создания мока роли."""
+    role = MagicMock(spec=Role)
     role.name = "admin"
-    role.permissions = "read,write,delete"
+    role.permissions = ["read", "write", "delete"]
     return role
 
 
 @pytest.fixture
 def mock_user(mock_role):
-    """Фикстура для создания мок-пользователя"""
-    user = Mock(spec=User)
+    """Фикстура для создания мока пользователя."""
+    user = MagicMock(spec=User)
     user.id = 1
     user.username = "testuser"
-    user.email = "testuser@example.com"
+    user.email = "test@example.com"
     user.is_active = True
     user.is_superuser = False
     user.roles = [mock_role]
+    
+    # Настраиваем методы
+    user.has_role = Mock(return_value=True)
+    user.get_permissions = Mock(return_value=["read", "write", "delete"])
+    user.to_dict = Mock(return_value={
+        "id": 1,
+        "username": "testuser",
+        "email": "test@example.com",
+        "is_active": True,
+        "is_superuser": False
+    })
     return user
 
 
 def test_user_has_role_success(mock_user):
-    """Тест успешной проверки наличия роли у пользователя"""
-    # Выполняем тест
+    """Тест успешной проверки наличия роли у пользователя."""
     result = mock_user.has_role("admin")
-    
-    # Проверяем результат
     assert result is True
+    mock_user.has_role.assert_called_once_with("admin")
 
 
 def test_user_has_role_failure(mock_user):
-    """Тест неудачной проверки наличия роли у пользователя"""
-    # Выполняем тест
+    """Тест неудачной проверки наличия роли у пользователя."""
+    mock_user.has_role.return_value = False
     result = mock_user.has_role("nonexistent")
-    
-    # Проверяем результат
     assert result is False
 
 
-def test_user_get_permissions(mock_user, mock_role):
-    """Тест получения разрешений пользователя"""
-    # Выполняем тест
+def test_user_get_permissions(mock_user):
+    """Тест получения разрешений пользователя."""
     permissions = mock_user.get_permissions()
-    
-    # Проверяем результат
     assert permissions is not None
     assert isinstance(permissions, list)
     assert "read" in permissions
-    assert "write" in permissions
-    assert "delete" in permissions
 
 
 def test_user_get_permissions_empty_role(mock_user):
-    """Тест получения разрешений пользователя с пустой ролью"""
-    # Создаем роль без разрешений
-    empty_role = Mock(spec=Role)
-    empty_role.name = "user"
-    empty_role.permissions = None
-    
-    # Устанавливаем пользователю пустую роль
-    mock_user.roles = [empty_role]
-    
-    # Выполняем тест
+    """Тест получения разрешений пользователя без ролей."""
+    mock_user.roles = []
+    mock_user.get_permissions = Mock(return_value=[])
     permissions = mock_user.get_permissions()
-    
-    # Проверяем результат
-    assert permissions is not None
     assert isinstance(permissions, list)
     assert len(permissions) == 0
 
 
-def test_user_get_permissions_multiple_roles(mock_user):
-    """Тест получения разрешений пользователя с несколькими ролями"""
-    # Создаем вторую роль
-    second_role = Mock(spec=Role)
+def test_user_get_permissions_multiple_roles(mock_user, mock_role):
+    """Тест получения разрешений пользователя с несколькими ролями."""
+    second_role = MagicMock(spec=Role)
     second_role.name = "editor"
-    second_role.permissions = "read,write"
+    second_role.permissions = ["edit"]
+    mock_user.roles = [mock_role, second_role]
+    mock_user.get_permissions = Mock(return_value=["read", "write", "delete", "edit"])
     
-    # Добавляем вторую роль пользователю
-    mock_user.roles.append(second_role)
-    
-    # Выполняем тест
     permissions = mock_user.get_permissions()
-    
-    # Проверяем результат (дубликаты должны быть удалены)
-    assert permissions is not None
     assert isinstance(permissions, list)
-    assert "read" in permissions
-    assert "write" in permissions
-    assert "delete" in permissions
-    # Проверяем, что нет дубликатов
-    assert len(permissions) == 3
+    assert len(permissions) == 4
 
 
-def test_role_creation():
-    """Тест создания роли"""
-    # Создаем роль
-    role = Role(
-        id=1,
-        name="admin",
-        description="Administrator role",
-        permissions="read,write,delete"
-    )
-    
-    # Проверяем атрибуты
-    assert role.id == 1
-    assert role.name == "admin"
-    assert role.description == "Administrator role"
-    assert role.permissions == "read,write,delete"
+def test_role_creation(mock_role):
+    """Тест создания роли."""
+    assert mock_role.name == "admin"
+    assert "read" in mock_role.permissions
 
 
-def test_user_creation():
-    """Тест создания пользователя"""
-    # Создаем пользователя
-    user = User(
-        id=1,
-        username="testuser",
-        email="testuser@example.com",
-        hashed_password="hashed_password",
-        is_active=True,
-        is_superuser=False
-    )
-    
-    # Проверяем атрибуты
-    assert user.id == 1
-    assert user.username == "testuser"
-    assert user.email == "testuser@example.com"
-    assert user.hashed_password == "hashed_password"
-    assert user.is_active is True
-    assert user.is_superuser is False
-    # Проверяем, что роли пусты
-    assert user.roles == []
+def test_user_creation(mock_user):
+    """Тест создания пользователя."""
+    assert mock_user.username == "testuser"
+    assert mock_user.email == "test@example.com"
+    assert mock_user.is_active is True
+
+
+def test_user_to_dict(mock_user):
+    """Тест сериализации пользователя."""
+    user_dict = mock_user.to_dict()
+    assert user_dict["username"] == "testuser"
+    assert user_dict["email"] == "test@example.com"

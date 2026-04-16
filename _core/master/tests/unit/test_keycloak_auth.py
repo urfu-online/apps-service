@@ -1,134 +1,88 @@
-"""Тесты для KeycloakAuthProvider."""
+"""Тесты для Keycloak провайдера аутентификации."""
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
-from app.core.security import KeycloakAuthProvider
+from unittest.mock import AsyncMock, Mock, MagicMock, patch
+from app.core.security import KeycloakAuthProvider, get_keycloak_client
 
 
-@pytest.fixture
-def keycloak_auth_provider():
-    """Фикстура для создания экземпляра KeycloakAuthProvider"""
-    return KeycloakAuthProvider()
+class TestKeycloakAuthProvider:
+    """Тесты Keycloak провайдера аутентификации."""
 
+    @pytest.fixture
+    def mock_auth_provider(self):
+        """Фикстура для создания Keycloak провайдера аутентификации."""
+        # Создаем мок клиента и патчим метод получения клиента
+        mock_client = MagicMock()
+        with patch('app.core.security.get_keycloak_client', return_value=mock_client):
+            provider = KeycloakAuthProvider()
+            provider.keycloak = mock_client
+            return provider, mock_client
 
-@pytest.mark.asyncio
-async def test_keycloak_authenticate_success(keycloak_auth_provider):
-    """Тест успешной аутентификации через Keycloak"""
-    # Мокаем KeycloakOpenID
-    with patch('app.core.security.KeycloakOpenID') as mock_keycloak:
-        # Настраиваем мок для возврата токена и информации о пользователе
-        mock_instance = Mock()
-        mock_instance.token.return_value = {'access_token': 'test_token'}
-        mock_instance.userinfo.return_value = {
-            'sub': '1',
-            'preferred_username': 'testuser',
-            'email': 'testuser@example.com'
+    @pytest.mark.asyncio
+    async def test_authenticate_success(self, mock_auth_provider):
+        """Тест успешной аутентификации через Keycloak."""
+        provider, mock_keycloak = mock_auth_provider
+        
+        mock_keycloak.token.return_value = {"access_token": "test_token"}
+        mock_keycloak.userinfo.return_value = {
+            "sub": "1", 
+            "preferred_username": "testuser",
+            "email": "testuser@example.com"
         }
-        mock_keycloak.return_value = mock_instance
-        
-        # Устанавливаем мок в провайдер
-        keycloak_auth_provider.keycloak_openid = mock_instance
-        
-        # Выполняем тест
-        result = await keycloak_auth_provider.authenticate("testuser", "testpass")
-        
-        # Проверяем результат
+
+        result = await provider.authenticate("testuser", "password")
+
         assert result is not None
-        assert result['preferred_username'] == 'testuser'
-        assert result['email'] == 'testuser@example.com'
+        assert result["preferred_username"] == "testuser"
+        assert result["email"] == "testuser@example.com"
+        mock_keycloak.token.assert_called_once_with("testuser", "password")
 
+    @pytest.mark.asyncio
+    async def test_authenticate_failure(self, mock_auth_provider):
+        """Тест неудачной аутентификации через Keycloak."""
+        provider, mock_keycloak = mock_auth_provider
+        
+        mock_keycloak.token.side_effect = Exception("Invalid credentials")
 
-@pytest.mark.asyncio
-async def test_keycloak_authenticate_failure(keycloak_auth_provider):
-    """Тест неудачной аутентификации через Keycloak"""
-    # Мокаем KeycloakOpenID для выброса исключения
-    with patch('app.core.security.KeycloakOpenID') as mock_keycloak:
-        # Настраиваем мок для выброса исключения
-        mock_instance = Mock()
-        mock_instance.token.side_effect = Exception("Authentication failed")
-        mock_keycloak.return_value = mock_instance
-        
-        # Устанавливаем мок в провайдер
-        keycloak_auth_provider.keycloak_openid = mock_instance
-        
-        # Выполняем тест
-        result = await keycloak_auth_provider.authenticate("testuser", "wrongpass")
-        
-        # Проверяем результат
+        result = await provider.authenticate("testuser", "wrongpassword")
+
         assert result is None
+        mock_keycloak.token.assert_called_once_with("testuser", "wrongpassword")
 
-
-@pytest.mark.asyncio
-async def test_keycloak_get_current_user_success(keycloak_auth_provider):
-    """Тест успешного получения текущего пользователя через Keycloak"""
-    # Мокаем KeycloakOpenID
-    with patch('app.core.security.KeycloakOpenID') as mock_keycloak:
-        # Настраиваем мок для возврата информации о пользователе
-        mock_instance = Mock()
-        mock_instance.userinfo.return_value = {
-            'sub': '1',
-            'preferred_username': 'testuser',
-            'email': 'testuser@example.com'
+    @pytest.mark.asyncio
+    async def test_get_current_user_success(self, mock_auth_provider):
+        """Тест получения текущего пользователя через Keycloak."""
+        provider, mock_keycloak = mock_auth_provider
+        
+        mock_keycloak.userinfo.return_value = {
+            "sub": "1", 
+            "preferred_username": "testuser",
+            "email": "testuser@example.com"
         }
-        mock_keycloak.return_value = mock_instance
-        
-        # Устанавливаем мок в провайдер
-        keycloak_auth_provider.keycloak_openid = mock_instance
-        
-        # Выполняем тест
-        result = await keycloak_auth_provider.get_current_user("test_token")
-        
-        # Проверяем результат
+
+        result = await provider.get_current_user("valid_token")
+
         assert result is not None
-        assert result['preferred_username'] == 'testuser'
-        assert result['email'] == 'testuser@example.com'
+        assert result["preferred_username"] == "testuser"
+        assert result["email"] == "testuser@example.com"
+        mock_keycloak.userinfo.assert_called_once_with("valid_token")
 
+    @pytest.mark.asyncio
+    async def test_get_current_user_invalid_token(self, mock_auth_provider):
+        """Тест получения пользователя с невалидным токеном."""
+        provider, mock_keycloak = mock_auth_provider
+        
+        mock_keycloak.userinfo.side_effect = Exception("Invalid token")
 
-@pytest.mark.asyncio
-async def test_keycloak_get_current_user_auth_error(keycloak_auth_provider):
-    """Тест получения текущего пользователя с ошибкой аутентификации через Keycloak"""
-    from keycloak.exceptions import KeycloakAuthenticationError
-    
-    # Мокаем KeycloakOpenID для выброса KeycloakAuthenticationError
-    with patch('app.core.security.KeycloakOpenID') as mock_keycloak:
-        # Настраиваем мок для выброса исключения
-        mock_instance = Mock()
-        mock_instance.userinfo.side_effect = KeycloakAuthenticationError("Token invalid")
-        mock_keycloak.return_value = mock_instance
-        
-        # Устанавливаем мок в провайдер
-        keycloak_auth_provider.keycloak_openid = mock_instance
-        
-        # Выполняем тест
-        result = await keycloak_auth_provider.get_current_user("invalid_token")
-        
-        # Проверяем результат
+        result = await provider.get_current_user("invalid_token")
+
         assert result is None
+        mock_keycloak.userinfo.assert_called_once_with("invalid_token")
 
+    @pytest.mark.asyncio
+    async def test_create_user_unsupported(self, mock_auth_provider):
+        """Тест создания пользователя через Keycloak (не поддерживается)."""
+        provider, mock_keycloak = mock_auth_provider
 
-@pytest.mark.asyncio
-async def test_keycloak_get_current_user_get_error(keycloak_auth_provider):
-    """Тест получения текущего пользователя с ошибкой получения данных через Keycloak"""
-    from keycloak.exceptions import KeycloakGetError
-    
-    # Мокаем KeycloakOpenID для выброса KeycloakGetError
-    with patch('app.core.security.KeycloakOpenID') as mock_keycloak:
-        # Настраиваем мок для выброса исключения
-        mock_instance = Mock()
-        mock_instance.userinfo.side_effect = KeycloakGetError("User not found")
-        mock_keycloak.return_value = mock_instance
-        
-        # Устанавливаем мок в провайдер
-        keycloak_auth_provider.keycloak_openid = mock_instance
-        
-        # Выполняем тест
-        result = await keycloak_auth_provider.get_current_user("test_token")
-        
-        # Проверяем результат
+        result = await provider.create_user("newuser", "password", ["role1"])
+
         assert result is None
-
-
-@pytest.mark.asyncio
-async def test_keycloak_create_user(keycloak_auth_provider):
-    """Тест создания пользователя через Keycloak (должен возвращать None)"""
-    result = await keycloak_auth_provider.create_user("newuser", "newpass", ["user"])
-    assert result is None
