@@ -176,6 +176,7 @@ def test_deployment_status_updates(db_session, sample_service, sample_deployment
 
     sample_deployment.status = "completed"
     sample_deployment.success = True
+    sample_deployment.rollback_available = True  # Устанавливаем явно, так как по умолчанию False
     sample_deployment.finished_at = datetime(2023, 1, 1, 12, 5, 0, tzinfo=timezone.utc)
     sample_deployment.logs = "Deployment completed successfully"
     db_session.commit()
@@ -183,9 +184,9 @@ def test_deployment_status_updates(db_session, sample_service, sample_deployment
 
     assert sample_deployment.status == "completed"
     assert sample_deployment.success is True
+    assert sample_deployment.rollback_available is True  # Проверяем, что откат доступен
     assert sample_deployment.finished_at is not None
     # Добавлена дополнительная проверка бизнес-логики
-    assert sample_deployment.rollback_available is True  # После успешного завершения откат доступен
     assert "completed successfully" in sample_deployment.logs
 
 

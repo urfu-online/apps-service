@@ -9,21 +9,6 @@ from app.services.discovery import ServiceManifest
 from .test_model_utils import ModelTestFixture
 
 
-@pytest.fixture
-def mock_service_manifest():
-    """Фикстура для создания ServiceManifest."""
-    from pathlib import Path
-    return ServiceManifest(
-        name="test-service",
-        display_name="Test Service",
-        version="1.0.0",
-        status="running",
-        visibility="public",
-        type="docker-compose",
-        path=Path("/tmp/test-service"),
-    )
-
-
 class TestServiceRoutes:
     """Тесты для routes сервисов (unit tests без TestClient)."""
 

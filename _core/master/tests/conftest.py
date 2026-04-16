@@ -1,12 +1,16 @@
 """Фикстуры pytest для тестирования приложения master."""
-import os
+
 import sys
-import pytest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 
 # Add app to path for direct pytest runs
+
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
 
@@ -83,14 +87,12 @@ def sample_service_manifest():
         description="Test service",
         type="docker-compose",
         visibility="public",
-        routing=[
-            {
-                "type": "domain",
-                "domain": "test-web.example.com",
-                "internal_port": 80,
-                "container_name": "test-web-app",
-            }
-        ],
+        routing=[{
+            "type": "domain",
+            "domain": "test-web.example.com",
+            "internal_port": 80,
+            "container_name": "test-web-app",
+        }],
         path=Path("/test/path"),
         status="running",
     )
@@ -99,7 +101,7 @@ def sample_service_manifest():
 @pytest.fixture
 def mock_discovery():
     """Мокированный ServiceDiscovery для тестов."""
-    from app.services.discovery import ServiceDiscovery, ServiceManifest, RoutingConfigModel
+    from app.services.discovery import RoutingConfigModel, ServiceDiscovery, ServiceManifest
 
     discovery = MagicMock(spec=ServiceDiscovery)
 
@@ -109,29 +111,18 @@ def mock_discovery():
         auto_subdomain=True,
         auto_subdomain_base="apps.urfu.online",
         internal_port=8000,
-        container_name="test-auto-svc"
+        container_name="test-auto-svc",
     )
     service1 = ServiceManifest(
-        name="test-auto-svc",
-        display_name="Test Auto Service",
-        routing=[route1]
+        name="test-auto-svc", display_name="Test Auto Service", routing=[route1]
     )
 
-    route2 = RoutingConfigModel(
-        type="domain",
-        domain="explicit.example.com",
-        auto_subdomain=False
-    )
+    route2 = RoutingConfigModel(type="domain", domain="explicit.example.com", auto_subdomain=False)
     service2 = ServiceManifest(
-        name="explicit-svc",
-        display_name="Explicit Domain Service",
-        routing=[route2]
+        name="explicit-svc", display_name="Explicit Domain Service", routing=[route2]
     )
 
-    discovery.services = {
-        "test-auto-svc": service1,
-        "explicit-svc": service2
-    }
+    discovery.services = {"test-auto-svc": service1, "explicit-svc": service2}
 
     # Mock validate_domain
     def mock_validate(domain):
@@ -164,12 +155,101 @@ def mock_discovery():
 
 
 @pytest.fixture
+def sample_datetime():
+    """Образец datetime для тестов."""
+    return datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def base_log_entry_response_data(sample_datetime):
+    """Базовые данные для тестирования LogEntryResponse."""
+    return {
+        "timestamp": sample_datetime.isoformat(),
+        "level": "info",
+        "message": "Test log message",
+    }
+
+
+@pytest.fixture
+def base_deployment_response_data(sample_datetime):
+    """Базовые данные для тестирования DeploymentResponse."""
+    return {
+        "id": 1,
+        "service_id": 1,
+        "version": "1.0.0",
+        "status": "completed",
+        "started_at": sample_datetime,
+        "finished_at": sample_datetime,
+        "logs": "Deployment completed successfully",
+        "success": True,
+        "rollback_available": False,
+    }
+
+
+@pytest.fixture
+def base_backup_response_data(sample_datetime):
+    """Базовые данные для тестирования BackupResponse."""
+    return {
+        "id": 1,
+        "service_id": 1,
+        "filename": "backup_20240101_120000.tar.gz",
+        "size": 1024000,
+        "timestamp": sample_datetime,
+        "status": "completed",
+        "type": "full",
+        "checksum": "abc123def456",
+    }
+
+
+@pytest.fixture
+def base_service_response_data():
+    """Базовые данные для тестирования ServiceResponse."""
+    return {
+        "name": "test-service",
+        "display_name": "Test Service",
+        "version": "1.0.0",
+        "status": "running",
+        "visibility": "public",
+        "type": "docker-compose",
+    }
+
+
+@pytest.fixture
+def base_tls_validation_response_data():
+    """Базовые данные для тестирования TLSValidationResponse."""
+    return {
+        "domain": "example.com",
+        "valid": True,
+        "expires_at": "2024-12-31T23:59:59Z",
+        "issued_by": "Let's Encrypt",
+        "certificate_chain": ["cert1", "cert2"],
+    }
+
+
+@pytest.fixture
+def mock_service_manifest():
+    """Фикстура для создания ServiceManifest."""
+
+    from app.services.discovery import ServiceManifest
+
+    return ServiceManifest(
+        name="test-service",
+        display_name="Test Service",
+        version="1.0.0",
+        status="running",
+        visibility="public",
+        type="docker-compose",
+        path=Path("/tmp/test-service"),
+    )
+
+
+@pytest.fixture
 def app_with_mock_discovery(mock_discovery):
     """Тестовое приложение с mock discovery."""
     from app.main import app
 
     # Store original state
-    original_discovery = getattr(app.state, 'discovery', None)
+    original_discovery = getattr(app.state, "discovery", None)
 
     # Set mock
     app.state.discovery = mock_discovery
@@ -179,5 +259,5 @@ def app_with_mock_discovery(mock_discovery):
     # Restore original state
     if original_discovery:
         app.state.discovery = original_discovery
-    elif hasattr(app.state, 'discovery'):
-        delattr(app.state, 'discovery')
+    elif hasattr(app.state, "discovery"):
+        delattr(app.state, "discovery")

@@ -21,14 +21,15 @@ class TestBuiltInAuthProvider:
             # Мокаем сессию БД
             mock_session = MagicMock()
             mock_query = MagicMock()
-            
+
             mock_user = MagicMock(spec=User)
             mock_user.check_password.return_value = True
-            mock_user.to_dict.return_value = {"id": 1, "username": "testuser", "is_active": True}
-            
+            # Исправление: to_dict должен быть вызываемым методом, возвращающим словарь
+            mock_user.to_dict = MagicMock(return_value={"id": 1, "username": "testuser", "is_active": True})
+
             mock_query.first.return_value = mock_user
             mock_session.query.return_value.filter.return_value = mock_query
-            
+
             with patch("app.core.database.SessionLocal") as mock_session_class:
                 mock_session_class.return_value.__enter__.return_value = mock_session
                 result = await mock_auth_provider.authenticate("testuser", "correctpassword")
@@ -44,13 +45,13 @@ class TestBuiltInAuthProvider:
             mock_session = MagicMock()
             mock_query = MagicMock()
             mock_query.first.return_value = None  # Пользователь не найден
-            
+
             mock_session.query.return_value.filter.return_value = mock_query
-            
+
             with patch("app.core.database.SessionLocal") as mock_session_class:
                 mock_session_class.return_value.__enter__.return_value = mock_session
                 result = await mock_auth_provider.authenticate("nonexistent", "password")
-            
+
             assert result is None
 
     @pytest.mark.asyncio
@@ -59,17 +60,19 @@ class TestBuiltInAuthProvider:
         # Мокаем сессию БД
         mock_session = MagicMock()
         mock_query = MagicMock()
-        
+
         mock_user = MagicMock(spec=User)
         mock_user.check_password.return_value = False
-        
+        # Исправление: to_dict должен быть вызываемым методом
+        mock_user.to_dict = MagicMock()
+
         mock_query.first.return_value = mock_user
         mock_session.query.return_value.filter.return_value = mock_query
-        
+
         with patch("app.core.database.SessionLocal") as mock_session_class:
             mock_session_class.return_value.__enter__.return_value = mock_session
             result = await mock_auth_provider.authenticate("testuser", "wrongpassword")
-        
+
         assert result is None
 
     @pytest.mark.asyncio
@@ -77,17 +80,18 @@ class TestBuiltInAuthProvider:
         """Тест получения текущего пользователя по токену."""
         mock_session = MagicMock()
         mock_query = MagicMock()
-        
+
         mock_user = MagicMock(spec=User)
-        mock_user.to_dict.return_value = {"id": 1, "username": "testuser", "is_active": True}
+        # Исправление: to_dict должен быть вызываемым методом, возвращающим словарь
+        mock_user.to_dict = MagicMock(return_value={"id": 1, "username": "testuser", "is_active": True})
         mock_query.first.return_value = mock_user
-        
+
         mock_session.query.return_value.filter.return_value = mock_query
-        
+
         with patch("app.core.database.SessionLocal") as mock_session_class:
             mock_session_class.return_value.__enter__.return_value = mock_session
             result = await mock_auth_provider.get_current_user("1")
-        
+
         assert result is not None
         assert result["username"] == "testuser"
         assert result["id"] == 1
@@ -98,11 +102,11 @@ class TestBuiltInAuthProvider:
         # Мокаем сессию БД
         mock_session = MagicMock()
         mock_session.query.return_value.filter.return_value.first.return_value = None
-        
+
         with patch("app.core.database.SessionLocal") as mock_session_class:
             mock_session_class.return_value.__enter__.return_value = mock_session
             result = await mock_auth_provider.get_current_user("invalid_token")
-        
+
         assert result is None
 
     @pytest.mark.asyncio
@@ -116,29 +120,30 @@ class TestBuiltInAuthProvider:
         new_user = MagicMock()
         new_user.id = 1
         new_user.username = "newuser"
-        new_user.to_dict.return_value = {
+        # Исправление: to_dict должен быть вызываемым методом
+        new_user.to_dict = MagicMock(return_value={
             "id": 1,
             "username": "newuser",
             "email": "newuser@example.com",
             "is_active": True,
             "is_superuser": False
-        }
-        
+        })
+
         with patch("app.models.user.User") as MockUserClass:
             MockUserClass.return_value = new_user
             MockUserClass.username = MagicMock()
             MockUserClass.password = MagicMock()
             MockUserClass.email = MagicMock()
             MockUserClass.is_superuser = MagicMock()
-            
+
             with patch("app.core.database.SessionLocal") as mock_session_class:
                 mock_session_class.return_value.__enter__.return_value = mock_session
                 result = await mock_auth_provider.create_user("newuser", "password", [])
-                
+
             # Убеждаемся, что добавили пользователя в сессию и зафиксировали
             mock_session.add.assert_called_once_with(new_user)
             mock_session.commit.assert_called_once()
-        
+
         assert result is not None
         assert result["username"] == "newuser"
 
@@ -148,9 +153,9 @@ class TestBuiltInAuthProvider:
         mock_session = MagicMock()
         existing_user = MagicMock()
         mock_session.query.return_value.filter.return_value.first.return_value = existing_user
-        
+
         with patch("app.core.database.SessionLocal") as mock_session_class:
             mock_session_class.return_value.__enter__.return_value = mock_session
             result = await mock_auth_provider.create_user("existinguser", "password", [])
-        
+
         assert result is None

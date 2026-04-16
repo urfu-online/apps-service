@@ -2,6 +2,29 @@
 
 Трёхуровневая система тестирования для безопасного обновления без риска для production.
 
+## [UPDATED] Текущий статус тестов (апрель 2026)
+
+### Level 0: Unit-тесты
+- **Статус**: 104 passed, 9 failed (67% coverage)
+- **Проблемы**: 
+  - Тесты BuiltInAuthProvider падают из-за проблем с моками БД
+  - Некоторые SharedModelTests требуют дополнительных фикстур
+- **Команда**: `pytest tests/unit -v --cov`
+
+### Level 1: Интеграционные тесты
+- **Статус**: 10 passed, 1 error, 1 skipped
+- **Проблемы**:
+  - `test_nicegui_ui.py` требует playwright (не установлен)
+  - `test_user_crud_integration` использует устаревший AsyncClient API
+- **Команда**: `pytest tests/integration -k "not nicegui" -v`
+
+### Level 2: DinD (Docker-in-Docker)
+- **Статус**: Требует настройки
+- **Проблемы**:
+  - Каталоги `services/public` и `services/internal` пусты
+  - Требуется копирование тестовых сервисов из `infra/test-env/test-services/`
+- **Команда**: См. инструкции ниже
+
 ## Уровни тестирования
 
 ### Level 0: Unit-тесты (~5 сек)
@@ -70,6 +93,17 @@ asyncio.run(test())
 ### Level 3: DinD VM (~30 сек)
 
 Полноценная изолированная среда через Docker-in-Docker. Симулирует production сервер (`/apps`).
+
+**[UPDATED] Предварительная настройка:**
+```bash
+# Копирование тестовых сервисов (требуется один раз)
+cp -r infra/test-env/test-services/public/* services/public/ 2>/dev/null || true
+cp -r infra/test-env/test-services/internal/* services/internal/ 2>/dev/null || true
+
+# Проверка структуры
+ls -la services/public/
+ls -la services/internal/
+```
 
 ```bash
 # Запуск DinD окружения
@@ -144,12 +178,29 @@ infra/test-env/
 | Breaking change | All levels | Full suite + DinD |
 | Release candidate | All levels + manual | 100% на critical paths |
 
-## Целевое покрытие
+## [UPDATED] Целевое покрытие
 
-- Critical paths (deploy, discovery, caddy): 90%
-- Models: 80%
-- Endpoints: 70%
-- Overall: 60%
+| Компонент | Целевое | Текущее (апрель 2026) |
+|-----------|---------|----------------------|
+| Critical paths (deploy, discovery, caddy) | 90% | ~35% |
+| Models | 80% | ~95% |
+| Endpoints | 70% | ~50% |
+| **Overall** | **60%** | **67%** |
+
+**Текущее покрытие (pytest --cov):**
+- `app/core/security.py`: 83% ✓
+- `app/models/`: 90-98% ✓
+- `app/services/discovery.py`: 35% ⚠️
+- `app/services/docker_manager.py`: 17% ⚠️
+- `app/services/backup_manager.py`: 14% ⚠️
+
+## [TODO: требует проверки] Известные проблемы
+
+1. **Тесты BuiltInAuthProvider** - моки БД не работают правильно, требуется рефакторинг тестов
+2. **Playwright зависимости** - `test_nicegui_ui.py` требует установки playwright
+3. **Устаревший AsyncClient API** - `test_user_crud_integration` использует старый API
+4. **Пустые каталоги сервисов** - для DinD тестов нужно скопировать тестовые сервисы
+5. **Фикстуры в conftest.py** - некоторые фикстуры дублируются между файлами
 
 ## API Endpoints
 
@@ -224,7 +275,7 @@ def test_get_service_success():
         app.dependency_overrides.clear()
 ```
 
-## Troubleshooting
+## [UPDATED] Troubleshooting
 
 | Проблема | Решение |
 |----------|---------|
@@ -234,3 +285,7 @@ def test_get_service_success():
 | Тесты падают на CI | Добавить `--no-cov` для ускорения |
 | `404 Not Found` в тестах | Проверить что endpoint существует (см. API Endpoints) |
 | Mock возвращает Mock | Добавить `.return_value = ...` |
+| **`ModuleNotFoundError: playwright`** | **Установить: `pip install playwright` или пропустить тест: `-k "not nicegui"`** |
+| **`sqlite3.OperationalError: unable to open database file`** | **Моки БД не работают. Проверить патчи `SessionLocal` в тестах BuiltInAuthProvider** |
+| **`AsyncClient.__init__() got unexpected keyword argument 'app'`** | **Обновить тест: использовать `AsyncClient(app=app)` → `AsyncClient(app=app, base_url="http://test")`** |
+| **Пустые каталоги `services/public/` и `services/internal/`** | **Скопировать тестовые сервисы: `cp -r infra/test-env/test-services/* services/`** |

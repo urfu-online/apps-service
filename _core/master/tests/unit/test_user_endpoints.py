@@ -47,8 +47,8 @@ class TestUserEndpointsFullCRUD:
             
             AuthProviderMock.return_value = auth_provider_instance
             
-            # Настраиваем моки для проверки существования пользователя и обновления
-            db_mock.query.return_value.filter.return_value.first.return_value = user_mock
+            # Настраиваем моки для проверки существования пользователя (сначала None - пользователь не существует)
+            db_mock.query.return_value.filter.return_value.first.return_value = None
             
             # Выполнение запроса
             result = await create_user(
