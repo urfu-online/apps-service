@@ -11,20 +11,27 @@
 
 ## Способ 1: Установка через pipx (рекомендуется)
 
-### Шаг 1: Установка pipx
+### Шаг 1: Установка pip через apt (если не установлен)
 
 ```bash
-# Установка pipx
-python3 -m pip install --user pipx
+sudo apt update
+sudo apt install -y python3-pip python3-venv
+```
+
+### Шаг 2: Установка pipx
+
+> **Важно:** На системах с PEP 668 (Ubuntu 24.04+, Debian 12+) ставьте pipx через apt, а не через pip.
+
+```bash
+# Установка pipx через apt (рекомендуется)
+sudo apt install -y pipx
 
 # Добавление в PATH
-python3 -m pipx ensurepath
-
-# Для текущей сессии
+pipx ensurepath
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Шаг 2: Установка platform-cli
+### Шаг 3: Установка platform-cli
 
 ```bash
 pipx install /apps/_core/platform-cli

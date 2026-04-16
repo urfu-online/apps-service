@@ -121,3 +121,7 @@ DEBUG=true  # переменная окружения
 ```bash
 docker logs platform-master --tail 50 -f
 ```
+
+## Настройка Caddy
+
+Caddy используется как reverse proxy. Подробная документация: [caddy-configuration.md](caddy-configuration.md)

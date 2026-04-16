@@ -1,0 +1,18 @@
+# Конфигурации для локальной разработки
+http://localhost {
+    import common_headers
+    # Импорт сгенерированных маршрутов для localhost
+    import /etc/caddy/conf.d/_subfolder_localhost.caddy.inc
+}
+
+# Внешние домены для локальной разработки (через Host header)
+http://instructor.{$PLATFORM_DOMAIN} {
+    import common_headers
+    import logging instructor domain
+    reverse_proxy http://instructor-frontend:80 {
+        health_uri /
+        health_interval 30s
+        header_up X-Real-IP {remote_host}
+        header_up X-Service-Name instructor
+    }
+}

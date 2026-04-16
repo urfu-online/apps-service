@@ -1,0 +1,2 @@
+# Development: отключаем auto_https redirects для локальных доменов
+auto_https disable_redirects

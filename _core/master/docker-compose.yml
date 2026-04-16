@@ -23,6 +23,7 @@ services:
       - "8001:8000"
     user: "0:0"
     env_file:
+      - ../../.env 
       - .env
     environment:
       - SERVICES_PATH=${SERVICES_PATH:-/services}
