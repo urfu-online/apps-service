@@ -109,18 +109,41 @@ def compose_cmd(service_path: Path, *args: str) -> subprocess.CompletedProcess:
 def _get_all_container_statuses() -> dict[str, str]:
     """Один запрос к Docker для получения статусов всех контейнеров."""
     try:
+        # Используем JSON-формат для надёжного парсинга
         res = subprocess.run(
-            ["docker", "ps", "-a", "--format", "table {{.Names}}\t{{.Status}}"],
-            capture_output=True, text=True, check=True, timeout=5
+            ["docker", "ps", "-a", "--format", "json"],
+            capture_output=True, text=True, check=True, timeout=10
         )
         statuses = {}
-        for line in res.stdout.strip().splitlines()[1:]:  # пропуск заголовка
-            if "\t" in line:
-                name, status = line.split("\t", 1)
-                statuses[name.strip()] = status.strip()
+        for line in res.stdout.strip().splitlines():
+            if not line:
+                continue
+            import json
+            entry = json.loads(line)
+            name = entry.get("Names", "")
+            status = entry.get("Status", "")
+            if name:
+                statuses[name] = status
         return statuses
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
         return {}
+
+
+def _matches_service(container_name: str, service_name: str) -> bool:
+    """Гибкое сопоставление имени контейнера и сервиса."""
+    # Точное совпадение
+    if container_name == service_name:
+        return True
+    # Docker Compose префиксы: {service}-frontend-1, {service}_db_1
+    if container_name.startswith(f"{service_name}-") or container_name.startswith(f"{service_name}_"):
+        return True
+    # Project-name суффиксы: platform-master, backup_support_1
+    if container_name.endswith(f"-{service_name}") or container_name.endswith(f"_{service_name}"):
+        return True
+    # Составные имена: course-archive-explorer в course-archive-explorer-backend-1
+    if service_name in container_name:
+        return True
+    return False
 
 
 def get_service_status(service_path: Path) -> str:
@@ -178,12 +201,12 @@ def list(
 
         # Быстрая проверка статуса через кэш контейнеров
         svc_status = "stopped"
-        for cname, cstatus in container_map.items():
-            if cname.startswith(name + "_"):
-                svc_status = cstatus.split()[0].lower()
-                if svc_status in ("up", "running", "restarting"):
-                    svc_status = f"running ({len([c for c in container_map if c.startswith(name + '_')])})"
-                break
+        matching = [c for c in container_map if _matches_service(c, name)]
+        if matching:
+            # Берём статус первого совпавшего контейнера
+            first_status = container_map[matching[0]].split()[0].lower()
+            if first_status in ("up", "running", "restarting", "healthy"):
+                svc_status = f"running ({len(matching)})"
 
         if status_filter:
             if status_filter == "running" and "running" not in svc_status:
