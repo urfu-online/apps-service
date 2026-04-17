@@ -11,7 +11,7 @@ services:
     ports:
       - "0.0.0.0:80:80"
       - "0.0.0.0:443:443"
-      - "127.0.0.1:2019:2019"  # Admin API только на localhost
+      - "127.0.0.1:2019:2019"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./conf.d:/etc/caddy/conf.d:ro
@@ -20,8 +20,6 @@ services:
       - ./data:/data
       - ./config:/config
       - ./logs:/var/log/caddy
-      # Development config (only mounted in dev)
-      # - ./development.caddy:/etc/caddy/conf.d/development.caddy:ro
     networks:
       - platform
 

@@ -1,7 +1,9 @@
 """
 CLI утилита для управления платформой Platform Master Service
 """
-
+from functools import lru_cache
+from contextlib import contextmanager
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,36 +28,38 @@ PROJECT_ROOT: Optional[Path] = None
 CONFIG_FILE: Optional[Path] = None
 
 
+@lru_cache(maxsize=1)
 def get_config() -> dict:
-    """Загрузка конфигурации из .ops-config.yml с поддержкой local override"""
-    global PROJECT_ROOT, CONFIG_FILE
-
+    """Загрузка конфигурации — кэшируется на время процесса"""
     config_candidates = [
-        Path.cwd() / ".ops-config.yml",
-        Path(__file__).parent.parent / ".ops-config.yml",
+        Path(os.getenv("OPS_CONFIG_PATH", Path.cwd() / ".ops-config.yml")),
+        Path(__file__).resolve().parent.parent.parent.parent / ".ops-config.yml",
         Path.home() / ".config" / "ops-manager" / "config.yml",
     ]
-
+    
     for cfg_path in config_candidates:
+        cfg_path = Path(cfg_path)
         if cfg_path.exists():
-            CONFIG_FILE = cfg_path
             with open(cfg_path) as f:
-                config = yaml.safe_load(f)
-
-            # Применяем local override если существует
+                config = yaml.safe_load(f) or {}
             local_override = cfg_path.parent / ".ops-config.local.yml"
             if local_override.exists():
                 with open(local_override) as f:
-                    local_data = yaml.safe_load(f)
-                if local_data and isinstance(local_data, dict):
-                    config.update(local_data)
-
-            PROJECT_ROOT = Path(config.get("project_root", "/apps"))
+                    local_data = yaml.safe_load(f) or {}
+                config.update(local_data)
             return config
     
-    console.print("[red]❌ Конфигурационный файл не найден. Запустите ./install.sh[/red]")
-    sys.exit(1)
+    console.print("[red]❌ Конфиг не найден. Запустите ./install.sh или укажите OPS_CONFIG_PATH[/red]")
+    raise typer.Exit(1)
 
+@contextmanager
+def docker_client():
+    """Контекстный менеджер для Docker client"""
+    client = docker.from_env()
+    try:
+        yield client
+    finally:
+        client.close()
 
 def get_services() -> dict:
     """Сканирование сервисов в проекте"""
@@ -89,26 +93,35 @@ def get_services() -> dict:
 
 
 def compose_cmd(service_path: Path, *args: str) -> subprocess.CompletedProcess:
-    """Выполнение команды docker compose"""
-    compose_file = service_path / "docker-compose.yml"
-    cmd = ["docker", "compose", "--project-directory", str(service_path), "-f", str(compose_file), *args]
+    """Выполнение docker compose с явной передачей .env"""
+    config = get_config()
+    env_file = Path(config.get("project_root", "/apps")) / ".env"
+    
+    cmd = [
+        "docker", "compose",
+        "--project-directory", str(service_path),
+        "-f", str(service_path / "docker-compose.yml"),
+        "--env-file", str(env_file),
+        *args
+    ]
     return subprocess.run(cmd, capture_output=False)
 
-
 def get_service_status(service_path: Path) -> str:
-    """Получение статуса сервиса"""
     try:
         result = subprocess.run(
-            ["docker", "compose", "--project-directory", str(service_path), "-f", str(service_path / "docker-compose.yml"), "ps", "-q"],
-            capture_output=True,
-            text=True
+            ["docker", "compose", "-f", str(service_path / "docker-compose.yml"), "ps", "-q"],
+            capture_output=True, text=True, cwd=service_path, timeout=10
         )
+        if result.returncode != 0:
+            return f"error: {result.stderr.strip()[:50]}"
         containers = [c for c in result.stdout.strip().split("\n") if c]
-        if len(containers) == 0:
-            return "stopped"
-        return f"running ({len(containers)})"
-    except Exception:
-        return "error"
+        return "stopped" if not containers else f"running ({len(containers)})"
+    except subprocess.TimeoutExpired:
+        return "timeout"
+    except FileNotFoundError:
+        return "docker-not-found"
+    except Exception as e:
+        return f"error: {type(e).__name__}"
 
 
 @app.command()
@@ -247,9 +260,9 @@ DATABASE_URL=postgresql://user:pass@db:5432/dbname
     with open(service_dir / ".env.example", "w") as f:
         f.write(env_example)
     
-    # Создание .env из .env.example
+    # Создание пустого .env (НЕ копируем example)
     with open(service_dir / ".env", "w") as f:
-        f.write(env_example)
+        f.write("# Переменные окружения — скопируйте из .env.example и заполните\n")
     
     # Шаблон README.md
     readme = f"""# {name.replace("-", " ").title()}
@@ -369,21 +382,21 @@ def status(service: Optional[str] = typer.Argument(None, help="Имя серви
         console.print(f"[bold]Путь:[/bold] {service_path}")
         console.print(f"[bold]Статус:[/bold] {status}")
         
-        # Попытка получить детальную информацию через Docker API
+       # Попытка получить детальную информацию через Docker API
         try:
-            client = docker.from_env()
-            containers = client.containers.list(filters={"name": service})
-            if containers:
-                container = containers[0]
-                stats = container.stats(stream=False)
-                if "memory_stats" in stats:
-                    memory = stats["memory_stats"]
-                    if "usage" in memory and "limit" in memory:
-                        memory_mb = memory["usage"] / 1024 / 1024
-                        memory_limit_mb = memory["limit"] / 1024 / 1024
-                        console.print(f"[bold]Память:[/bold] {memory_mb:.1f}MB / {memory_limit_mb:.1f}MB")
+            with docker_client() as client:
+                containers = client.containers.list(filters={"name": service})
+                if containers:
+                    container = containers[0]
+                    stats = container.stats(stream=False)
+                    if "memory_stats" in stats:
+                        memory = stats["memory_stats"]
+                        if "usage" in memory and "limit" in memory:
+                            memory_mb = memory["usage"] / 1024 / 1024
+                            memory_limit_mb = memory["limit"] / 1024 / 1024
+                            console.print(f"[bold]Память:[/bold] {memory_mb:.1f}MB / {memory_limit_mb:.1f}MB")
         except Exception:
-            pass
+            pass  # Не критично, если Docker API недоступен
     else:
         # Показать все сервисы
         list()
@@ -440,7 +453,8 @@ def backup(
         raise typer.Exit(1)
     
     # Попытка создать бэкап через Master Service API
-    master_url = "http://localhost:8001"
+    config = get_config()
+    master_url = config.get("master_url", "http://localhost:8001")
     
     try:
         response = requests.post(
