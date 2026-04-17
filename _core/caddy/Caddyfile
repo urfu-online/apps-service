@@ -31,7 +31,7 @@
 import /etc/caddy/snippets/*.caddy
 
 # Импорт конфигураций разработки только в dev-окружении
-import /etc/caddy/conf.d/development.caddy if {env.APP_ENV} eq "dev"
+# import /etc/caddy/conf.d/development.caddy if {env.APP_ENV} eq "dev"
 
 # Импорт всех конфигураций сервисов (домены, порты)
 import /etc/caddy/conf.d/*.caddy
