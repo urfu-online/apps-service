@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Важно: задаём критичные переменные через интерполяцию с дефолтами.
+    # Это защищает от `null` при запуске без `export` и без локального `.env`.
     environment:
       - APP_ENV=${APP_ENV:-prod}
       - PLATFORM_DOMAIN=${PLATFORM_DOMAIN:-localhost}

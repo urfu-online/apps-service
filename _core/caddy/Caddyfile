@@ -28,6 +28,8 @@
 }
  
 # Импорт глобальных сниппетов
+import /etc/caddy/snippets/common.caddy
+
 import /etc/caddy/snippets/*.caddy
 
 # Импорт конфигураций разработки только в dev-окружении

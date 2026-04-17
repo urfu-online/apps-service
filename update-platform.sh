@@ -10,16 +10,18 @@ log() { echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"; }
 warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 ENV_FILE="$PROJECT_ROOT/.env"
 
-if [[ ! -f "$ENV_FILE" ]]; then
-    error ".env not found at $ENV_FILE"
-    exit 1
+# Важно: используем `--env-file` с абсолютным путём (если .env существует), чтобы интерполяция
+# ${VAR:-default} работала стабильно независимо от текущей директории запуска.
+COMPOSE_ARGS=()
+if [[ -f "$ENV_FILE" ]]; then
+    COMPOSE_ARGS+=(--env-file "$ENV_FILE")
+else
+    warn ".env not found at $ENV_FILE; continuing without --env-file"
 fi
-
-COMPOSE_ARGS="--env-file $ENV_FILE"
 
 check_directory() {
     if [[ ! -d "$PROJECT_ROOT/_core" ]] || [[ ! -d "$PROJECT_ROOT/services" ]]; then
@@ -33,7 +35,7 @@ create_backups() {
     
     # Stop master temporarily for consistent backup
     log "Stopping master service..."
-    docker compose $COMPOSE_ARGS -f "$PROJECT_ROOT/_core/master/docker-compose.yml" down || warn "Failed to stop master service"
+    docker compose "${COMPOSE_ARGS[@]}" -f "$PROJECT_ROOT/_core/master/docker-compose.yml" down || warn "Failed to stop master service"
 
     # Backup database
     DB_PATH="$PROJECT_ROOT/_core/master/master.db"

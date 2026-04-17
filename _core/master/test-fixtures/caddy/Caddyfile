@@ -2,4 +2,5 @@
     admin 0.0.0.0:2019
 }
 
+import /etc/caddy/snippets/*.caddy
 import /etc/caddy/conf.d/*.caddy

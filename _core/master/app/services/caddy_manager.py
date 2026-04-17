@@ -247,7 +247,15 @@ class CaddyManager:
         caddyfile_path = self.config_path / "Caddyfile"
         if not caddyfile_path.exists():
             # Создаем минимальный Caddyfile если его нет
-            default_content = "{\n    admin 0.0.0.0:2019\n}\n\nimport /etc/caddy/conf.d/*.caddy\n"
+            # Важно: сниппеты нужны до импортов conf.d, иначе `import common_headers` в сгенерированных
+            # конфигурациях будет восприниматься как импорт файла и падать с `File to import not found`.
+            default_content = (
+                "{\n"
+                "    admin 0.0.0.0:2019\n"
+                "}\n\n"
+                "import /etc/caddy/snippets/*.caddy\n"
+                "import /etc/caddy/conf.d/*.caddy\n"
+            )
             async with aiofiles.open(caddyfile_path, 'w') as f:
                 await f.write(default_content)
             return default_content

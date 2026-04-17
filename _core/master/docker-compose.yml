@@ -10,6 +10,8 @@ services:
     ports:
       - "8001:8000"
     user: "0:0"
+    # Важно: задаём критичные переменные через интерполяцию с дефолтами.
+    # Это защищает от `null` при запуске без `export` и без локального `.env`.
     environment:
       - SERVICES_PATH=${SERVICES_PATH:-/services}
       - CADDY_CONFIG_PATH=${CADDY_CONFIG_PATH:-/caddy}
@@ -17,6 +19,7 @@ services:
       - DATABASE_URL=${DATABASE_URL:-sqlite:///./master.db}
       - AUTH_PROVIDER=${AUTH_PROVIDER:-builtin}
       - APP_ENV=${APP_ENV:-prod}
+      - PLATFORM_DOMAIN=${PLATFORM_DOMAIN:-localhost}
       - KEYCLOAK_SERVER_URL=${KEYCLOAK_SERVER_URL:-http://keycloak:8080/auth}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-platform}
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-master-service}

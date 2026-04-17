@@ -94,16 +94,21 @@ def get_services() -> dict:
 
 def compose_cmd(service_path: Path, *args: str) -> subprocess.CompletedProcess:
     """Выполнение docker compose с явной передачей .env"""
-    config = get_config()
-    env_file = Path(config.get("project_root", "/apps")) / ".env"
+    # .env должен находиться в корне репозитория. Используем абсолютный путь и
+    # добавляем `--env-file` только если файл существует (в репозитории он может отсутствовать).
+    env_file = (Path(__file__).resolve().parent.parent.parent.parent / ".env").resolve()
     
     cmd = [
-        "docker", "compose",
-        "--project-directory", str(service_path),
-        "-f", str(service_path / "docker-compose.yml"),
-        "--env-file", str(env_file),
-        *args
+        "docker",
+        "compose",
+        "--project-directory",
+        str(service_path),
+        "-f",
+        str(service_path / "docker-compose.yml"),
     ]
+    if env_file.exists():
+        cmd.extend(["--env-file", str(env_file)])
+    cmd.extend(args)
     return subprocess.run(cmd, capture_output=False)
 
 def get_service_status(service_path: Path) -> str:
