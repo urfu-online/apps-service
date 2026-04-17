@@ -27,10 +27,15 @@
     }
 }
  
-# Импорт глобальных сниппетов
+# Импорт сниппетов (исключая dev-специфичные)
 import /etc/caddy/snippets/common.caddy
-
-import /etc/caddy/snippets/*.caddy
+import /etc/caddy/snippets/acme_log.caddy
+import /etc/caddy/snippets/auth_keycloak.caddy
+import /etc/caddy/snippets/auto_https_prod.caddy
+import /etc/caddy/snippets/internal_only.caddy
+import /etc/caddy/snippets/logging.caddy
+import /etc/caddy/snippets/rate_limit.caddy
+# auto_https_dev.caddy намеренно исключен
 
 # Импорт конфигураций разработки только в dev-окружении
 # import /etc/caddy/conf.d/development.caddy if {env.APP_ENV} eq "dev"
