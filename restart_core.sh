@@ -1,57 +1,44 @@
 #!/bin/bash
 set -euo pipefail
 
-# Определение абсолютных путей
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Определяем корень проекта и .env независимо от CWD
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
 ENV_FILE="$PROJECT_ROOT/.env"
 
-# Проверка существования .env файла
-if [ ! -f "$ENV_FILE" ]; then
-    echo "❌ Ошибка: файл .env не найден в $ENV_FILE"
-    echo "Создайте файл .env на основе .env.example"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo -e "\033[0;31m❌ .env not found at $ENV_FILE\033[0m"
     exit 1
 fi
 
-# Функция для отображения справки
+COMPOSE_ARGS="--env-file $ENV_FILE"
+
 usage() {
-    echo "Использование: $0 [--build]"
-    echo "  --build    Пересобрать образы перед запуском"
-    echo "  без флагов  Простой рестарт без пересборки"
+    echo "Usage: $0 [--build]"
+    echo "  --build    Rebuild images before starting"
     exit 1
 }
 
-# Переменная для хранения флага --build
 BUILD_FLAG=""
-
-# Обработка аргументов командной строки
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-        --build)
-            BUILD_FLAG="--build"
-            ;;
-        -h|--help)
-            usage
-            ;;
-        *)
-            echo "Неизвестный параметр: $1"
-            usage
-            ;;
+        --build) BUILD_FLAG="--build" ;;
+        -h|--help) usage ;;
+        *) echo "Unknown parameter: $1"; usage ;;
     esac
     shift
 done
 
-# Рестарт master-сервисов
-echo "Останавливаю master-сервис..."
-docker compose --env-file "$ENV_FILE" -f "$PROJECT_ROOT/_core/master/docker-compose.yml" down
+echo "🛑 Stopping Master service..."
+docker compose $COMPOSE_ARGS -f "$PROJECT_ROOT/_core/master/docker-compose.yml" down
 
-echo "Запускаю master-сервис..."
-docker compose --env-file "$ENV_FILE" -f "$PROJECT_ROOT/_core/master/docker-compose.yml" up -d $BUILD_FLAG
+echo "🚀 Starting Master service..."
+docker compose $COMPOSE_ARGS -f "$PROJECT_ROOT/_core/master/docker-compose.yml" up -d $BUILD_FLAG
 
-# Рестарт Caddy
-echo "Останавливаю Caddy..."
-docker compose --env-file "$ENV_FILE" -f "$PROJECT_ROOT/_core/caddy/docker-compose.yml" down
+echo "🛑 Stopping Caddy..."
+docker compose $COMPOSE_ARGS -f "$PROJECT_ROOT/_core/caddy/docker-compose.yml" down
 
-echo "Запускаю Caddy..."
-docker compose --env-file "$ENV_FILE" -f "$PROJECT_ROOT/_core/caddy/docker-compose.yml" up -d $BUILD_FLAG
+echo "🌐 Starting Caddy..."
+docker compose $COMPOSE_ARGS -f "$PROJECT_ROOT/_core/caddy/docker-compose.yml" up -d $BUILD_FLAG
 
-echo "✅ Обновление завершено."
+echo "✅ Core services restarted successfully."
