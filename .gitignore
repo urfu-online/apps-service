@@ -1,195 +1,53 @@
-# Poetry
-/.venv
-/poetry.lock
+# Examples
 
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+    Input:
+    ### Added files:
+    [src/main.py, README.md, config.json]
 
-# C extensions
-*.so
+    ### Deleted files:
+    [old/unused.py]
+    ### Modified files:
+    [utils.py]
+    ###current .gitignore Content
+    (empty)
+    Expected Output:
+    (empty — output nothing)
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+# Example 2 (Project with artifacts):
+Input:
+### Added files:
+[pycache/main.cpython-310.pyc, dist/app.js, .env.local, .vscode/settings.json
 
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
+### Deleted files:
+    []
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
+### Modified files:
+[]
+### current .gitignore Content
 *.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-# .python-version
-
-# celery beat schedule file
-celerybeat-schedule
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-.codeassistantmodes
-_core/master/master.db
-_core/caddy/config/
-_core/caddy/conf.d/
-_core/caddy/data/
-QWEN.md
-services/*
-
-# Local service overrides (для разработки — не коммитятся)
-services/**/*.local.yml
-
-# Local ops config override (для разработки — не коммитится)
-.ops-config.local.yml
-
-# Platform CLI - изолированный проект
-_core/platform-cli/.venv/
-_core/platform-cli/venv/
-_core/platform-cli/dist/
-_core/platform-cli/build/
-_core/platform-cli/*.egg-info
-
-# MkDocs build output
-site/
-
-# Legacy / generated artifacts
-.legacy/
-
-# Qwen settings and temporary files
-.qwen/
-*.qwen_temp*
-
-# Specific .qwen files to ignore if they were previously committed
-.qwen/settings.json
-.qwen/settings.json.orig
-
-# Environment and secrets files
-secrets/
-*.env.local
-*.env.production
-*.env.development
-*.env.test
-config/secrets.yml
-credentials.json
-.key
-.pem
-.p12
-.jks
-.store
-
-# Application-specific sensitive files
-*.session
-*.log.encrypted
-passwords.txt
-accounts.json
-keys.json
-
-# Core dumps and crash files (security risk if sensitive data is present)
-*.core
-*.dmp
-
-# IDE security files
-.vscode/settings.json
-.idea/
-*.swp
-*.swo
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-qwen-code-export-2026-04-15T17-14-53-274Z.md
-_core/caddy.backup.*/
+Expected Output:
+    #Compiled and build artifacts
+    *.pyc
+    pycache/
+    *.o
+    *.obj
+    dist/
+    build/
+    #Dependencies
+    .venv/
+    venv/
+    node_modules/
+    #Logs and temp files
+    *.log
+    *.tmp
+    *.swp
+    #Environment
+    .env
+    .env.local
+    .env.
+    #Editors
+    .vscode/
+    .idea/
+    #Original rules preserved
+    *.log
+Final reminder: Output ONLY the .gitignore content. If nothing should be ignored, output NOTHING.

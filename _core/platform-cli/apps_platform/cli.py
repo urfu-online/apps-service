@@ -444,12 +444,16 @@ def backup(service: str = typer.Argument(..., help="Имя сервиса")):
         if response.status_code == 200:
             result = response.json()
             console.print(f"[green]✅ Бэкап создан: {result.get('name', 'N/A')}[/green]")
+            raise typer.Exit(0)
         else:
-            console.print(f"[yellow]⚠️  API вернул статус {response.status_code}. Попробуйте вручную.[/yellow]")
+            console.print(f"[red]❌ API вернул статус {response.status_code}[/red]")
+            raise typer.Exit(1)
     except requests.exceptions.ConnectionError:
-        console.print("[yellow]⚠️  Master Service недоступен. Запустите бэкап вручную через restic.[/yellow]")
+        console.print("[red]❌ Master Service недоступен. Запустите бэкап вручную через restic.[/red]")
+        raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[yellow]⚠️  Ошибка: {e}[/yellow]")
+        console.print(f"[red]❌ Ошибка: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -474,12 +478,14 @@ def info():
 
 
 @app.command()
-def reload():
+def reload(
+    container: str = typer.Option("caddy", "--container", "-c", help="Имя контейнера Caddy"),
+):
     """Перезагрузить конфигурацию Caddy."""
-    console.print("[blue]ℹ️  Перезагрузка Caddy...[/blue]")
+    console.print(f"[blue]ℹ️  Перезагрузка Caddy в контейнере '{container}'...[/blue]")
     try:
         result = subprocess.run(
-            ["docker", "exec", "caddy", "caddy", "reload", "--config", "/etc/caddy/Caddyfile"],
+            ["docker", "exec", container, "caddy", "reload", "--config", "/etc/caddy/Caddyfile"],
             capture_output=True, text=True, check=True
         )
         console.print("[green]✅ Caddy перезапущен[/green]")

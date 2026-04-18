@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Копирование исходного кода
 COPY pyproject.toml ./
-COPY platform/ ./platform/
+COPY apps_platform/ ./apps_platform/
 
 # Установка platform-cli
 RUN pip install --no-cache-dir .
