@@ -2,6 +2,7 @@
 CLI утилита для управления платформой Platform Master Service
 """
 import os
+import re
 import subprocess
 from contextlib import contextmanager
 from functools import lru_cache
@@ -24,6 +25,13 @@ console = Console()
 # Глобальная конфигурация (инициализируется однократно при импорте)
 PROJECT_ROOT = Path(os.getenv("OPS_PROJECT_ROOT", str(Path.cwd())))
 CONFIG_FILE: Path | None = None
+
+# Константы
+MAX_URLS_DISPLAY = 3
+AVAILABILITY_TIMEOUT = 3
+CADDY_DEFAULT_CONTAINER_NAME = "caddy"
+DOCKER_TIMEOUT = 10
+REQUEST_TIMEOUT = 10
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -108,24 +116,25 @@ def compose_cmd(service_path: Path, *args: str) -> subprocess.CompletedProcess:
 
 def _get_all_container_statuses() -> dict[str, str]:
     """Один запрос к Docker для получения статусов всех контейнеров."""
+    import json
     try:
         # Используем JSON-формат для надёжного парсинга
         res = subprocess.run(
             ["docker", "ps", "-a", "--format", "json"],
-            capture_output=True, text=True, check=True, timeout=10
+            capture_output=True, text=True, check=True, timeout=DOCKER_TIMEOUT
         )
         statuses = {}
         for line in res.stdout.strip().splitlines():
             if not line:
                 continue
-            import json
             entry = json.loads(line)
             name = entry.get("Names", "")
             status = entry.get("Status", "")
             if name:
                 statuses[name] = status
         return statuses
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError) as e:
+        console.print(f"[dim]Debug: _get_all_container_statuses error: {type(e).__name__}: {e}[/dim]")
         return {}
 
 
@@ -146,11 +155,240 @@ def _matches_service(container_name: str, service_name: str) -> bool:
     return False
 
 
+def _get_container_network_info(container_name: str) -> dict:
+    """Получение информации о сети контейнера (IP, порты)."""
+    try:
+        client = docker.from_env()
+        container = client.containers.get(container_name)
+        network_settings = container.attrs.get("NetworkSettings", {})
+        
+        # Получаем IP адреса из сетей
+        networks = network_settings.get("Networks", {})
+        ip_addresses = []
+        for net_name, net_config in networks.items():
+            if net_config.get("IPAddress"):
+                ip_addresses.append({
+                    "network": net_name,
+                    "ip": net_config["IPAddress"]
+                })
+        
+        # Получаем опубликованные порты
+        ports = network_settings.get("Ports", {})
+        exposed_ports = []
+        for port_key, port_bindings in ports.items():
+            if port_bindings:
+                for binding in port_bindings:
+                    exposed_ports.append({
+                        "container_port": port_key,
+                        "host_ip": binding.get("HostIp", "0.0.0.0"),
+                        "host_port": binding.get("HostPort")
+                    })
+        
+        client.close()
+        return {
+            "ip_addresses": ip_addresses,
+            "exposed_ports": exposed_ports,
+            "running": container.status == "running"
+        }
+    except Exception as e:
+        console.print(f"[dim]Debug: _get_container_network_info error for {container_name}: {type(e).__name__}: {e}[/dim]")
+        return {"ip_addresses": [], "exposed_ports": [], "running": False}
+
+
+def _parse_caddy_config(service_name: str, caddy_path: Path) -> list[dict]:
+    """Парсинг Caddy конфигурации для получения реальных доменов и путей."""
+    routes = []
+    
+    # Ищем .caddy файлы в conf.d
+    conf_d = caddy_path / "conf.d"
+    if not conf_d.exists():
+        return routes
+    
+    # Паттерны для поиска доменов и путей в Caddyfile
+    domain_pattern = re.compile(r'^(\S+)\s*\{')
+    reverse_proxy_pattern = re.compile(r'reverse_proxy\s+(?:http://)?([^\s]+)')
+    handle_path_pattern = re.compile(r'handle\s+(\S+)\s*\{')
+    
+    for caddy_file in conf_d.glob("*.caddy"):
+        try:
+            with open(caddy_file) as f:
+                content = f.read()
+            
+            # Проверяем, относится ли файл к сервису
+            if service_name not in caddy_file.name and service_name not in content:
+                continue
+            
+            lines = content.split('\n')
+            current_domain = None
+            current_path = None
+            
+            for line in lines:
+                line = line.strip()
+                
+                # Ищем домен
+                domain_match = domain_pattern.match(line)
+                if domain_match:
+                    current_domain = domain_match.group(1)
+                    # Исключаем служебные блоки
+                    if current_domain not in ('{', 'import'):
+                        routes.append({
+                            "type": "domain",
+                            "domain": current_domain,
+                            "source_file": caddy_file.name
+                        })
+                
+                # Ищем reverse proxy
+                proxy_match = reverse_proxy_pattern.search(line)
+                if proxy_match and current_domain:
+                    # Обновляем последний маршрут с информацией о бэкэнде
+                    if routes and routes[-1].get("domain") == current_domain:
+                        routes[-1]["backend"] = proxy_match.group(1)
+                
+                # Ищем handle path
+                path_match = handle_path_pattern.match(line)
+                if path_match and current_domain:
+                    current_path = path_match.group(1)
+                    if current_path and not current_path.startswith('{'):
+                        routes.append({
+                            "type": "subfolder",
+                            "domain": current_domain,
+                            "path": current_path,
+                            "source_file": caddy_file.name
+                        })
+                        
+        except Exception as e:
+            console.print(f"[dim]Debug: _parse_caddy_config error for {caddy_file}: {type(e).__name__}: {e}[/dim]")
+            continue
+    
+    return routes
+
+
+def _expand_env_vars(value: str) -> str:
+    """
+    Раскрытие переменных окружения с поддержкой синтаксиса ${VAR:-default}.
+    """
+    if not value or not isinstance(value, str):
+        return value
+    
+    # Паттерн для ${VAR:-default} или ${VAR}
+    pattern = re.compile(r'\$\{([^}:]+)(?::-([^}]*))?\}')
+    
+    def replace(match):
+        var_name = match.group(1)
+        default_value = match.group(2) if match.group(2) is not None else ""
+        return os.environ.get(var_name, default_value)
+    
+    result = pattern.sub(replace, value)
+    return result
+
+
+def _get_actual_service_urls(service_name: str, service_path: Path, service_config: dict) -> list[str]:
+    """
+    Получение действительных URL сервиса из различных источников.
+    
+    Приоритет источников:
+    1. Caddy конфигурация (реальные домены/пути)
+    2. docker-compose.yml (опубликованные порты)
+    3. service.yml routing (декларированные маршруты)
+    4. Дефолтные значения
+    """
+    urls = []
+    seen_urls = set()
+    
+    def add_url(url: str):
+        if url and url not in seen_urls:
+            urls.append(url)
+            seen_urls.add(url)
+    
+    # 1. Пытаемся получить URL из Caddy конфигурации
+    caddy_path = PROJECT_ROOT / "_core" / "caddy"
+    if caddy_path.exists():
+        caddy_routes = _parse_caddy_config(service_name, caddy_path)
+        for route in caddy_routes:
+            if route.get("type") == "domain":
+                domain = route.get("domain", "")
+                if domain:
+                    add_url(f"https://{domain}")
+            elif route.get("type") == "subfolder":
+                domain = route.get("domain", "localhost")
+                path = route.get("path", f"/{service_name}")
+                add_url(f"https://{domain}{path}")
+    
+    # 2. Получаем URL из docker-compose.yml (опубликованные порты)
+    compose_file = service_path / "docker-compose.yml"
+    if compose_file.exists():
+        try:
+            with open(compose_file) as f:
+                compose_config = yaml.safe_load(f) or {}
+            
+            services = compose_config.get("services", {})
+            for svc_name, svc_config in services.items():
+                ports = svc_config.get("ports", [])
+                for port_mapping in ports:
+                    if isinstance(port_mapping, str):
+                        # Формат: "host_port:container_port" или "ip:host_port:container_port"
+                        parts = port_mapping.split(":")
+                        if len(parts) >= 2:
+                            host_port = parts[-2] if len(parts) > 2 else parts[0]
+                            add_url(f"http://localhost:{host_port}")
+                    elif isinstance(port_mapping, int):
+                        add_url(f"http://localhost:{port_mapping}")
+        except Exception as e:
+            console.print(f"[dim]Debug: docker-compose parse error for {service_name}: {type(e).__name__}: {e}[/dim]")
+    
+    # 3. Получаем URL из service.yml routing
+    routing_configs = service_config.get("routing", [])
+    for route in routing_configs:
+        route_type = route.get("type", "subfolder")
+        
+        if route_type == "domain":
+            domain = route.get("domain", "")
+            if domain:
+                domain = _expand_env_vars(domain)
+                add_url(f"https://{domain}")
+        elif route_type == "subfolder":
+            base_domain = route.get("base_domain", "localhost")
+            base_domain = _expand_env_vars(base_domain)
+            path = route.get("path", f"/{service_name}")
+            add_url(f"https://{base_domain}{path}")
+        elif route_type == "port":
+            port = route.get("port", route.get("internal_port", 8000))
+            add_url(f"http://localhost:{port}")
+        
+        # Автоматический поддомен
+        if route.get("auto_subdomain", False):
+            base = route.get("auto_subdomain_base", "apps.urfu.online")
+            add_url(f"https://{service_name}.{base}")
+    
+    # 4. Дефолтный URL если ничего не найдено
+    if not urls:
+        routing = service_config.get("routing", [])
+        if routing:
+            # Используем первый маршрут как дефолт
+            first_route = routing[0]
+            route_type = first_route.get("type", "subfolder")
+            if route_type == "domain":
+                domain = _expand_env_vars(first_route.get("domain", "localhost"))
+                add_url(f"https://{domain}")
+            elif route_type == "port":
+                port = first_route.get("port", 8000)
+                add_url(f"http://localhost:{port}")
+            else:
+                base_domain = _expand_env_vars(first_route.get("base_domain", "localhost"))
+                path = first_route.get("path", f"/{service_name}")
+                add_url(f"https://{base_domain}{path}")
+        else:
+            # Совсем дефолт
+            add_url(f"http://localhost:8000")
+    
+    return urls
+
+
 def get_service_status(service_path: Path) -> str:
     try:
         result = subprocess.run(
             ["docker", "compose", "-f", str(service_path / "docker-compose.yml"), "ps", "-q"],
-            capture_output=True, text=True, cwd=service_path, timeout=10
+            capture_output=True, text=True, cwd=service_path, timeout=DOCKER_TIMEOUT
         )
         if result.returncode != 0:
             return f"error: {result.stderr.strip()[:50]}"
@@ -161,6 +399,7 @@ def get_service_status(service_path: Path) -> str:
     except FileNotFoundError:
         return "docker-not-found"
     except Exception as e:
+        console.print(f"[dim]Debug: get_service_status error: {type(e).__name__}: {e}[/dim]")
         return f"error: {type(e).__name__}"
 
 
@@ -184,6 +423,7 @@ def validate_service_name(name: str) -> str:
 def list(
     visibility: str | None = typer.Option(None, "--visibility", "-v", help="Фильтр по видимости (public/internal)"),
     status_filter: str | None = typer.Option(None, "--status", "-s", help="Фильтр по статусу (running/stopped)"),
+    check_availability: bool = typer.Option(False, "--check", "-c", help="Проверять доступность сервисов"),
 ):
     """Показать все сервисы."""
     services = get_services()
@@ -192,8 +432,9 @@ def list(
     table = Table(title="Сервисы платформы")
     table.add_column("Service", style="cyan")
     table.add_column("Type", style="magenta")
-    table.add_column("Path", style="green")
+    table.add_column("URL / Path", style="blue")
     table.add_column("Status", style="yellow")
+    table.add_column("Available", style="green")
 
     for name, info in sorted(services.items()):
         if visibility and info["type"] != visibility:
@@ -214,9 +455,70 @@ def list(
             if status_filter == "stopped" and "running" in svc_status:
                 continue
 
+        # Получаем информацию о маршрутизации из service.yml
+        service_path = info["path"]
+        service_yml_path = service_path / "service.yml"
+        
+        # Загружаем service.yml конфигурацию
+        service_config = {}
+        if service_yml_path.exists():
+            with open(service_yml_path) as f:
+                try:
+                    service_config = yaml.safe_load(f) or {}
+                except Exception as e:
+                    console.print(f"[dim]Debug: service.yml parse error for {name}: {type(e).__name__}: {e}[/dim]")
+        
+        # Получаем действительные URL сервиса из всех источников
+        urls = _get_actual_service_urls(name, service_path, service_config)
+        
+        # Форматируем URLs для отображения
+        url_display = "\n".join(urls[:MAX_URLS_DISPLAY])  # Показываем максимум MAX_URLS_DISPLAY URL
+        if len(urls) > MAX_URLS_DISPLAY:
+            url_display += f"\n... +{len(urls) - MAX_URLS_DISPLAY} ещё"
+        
+        # Проверка доступности - проверяем каждый URL пока не найдём рабочий
+        availability_status = "—"
+        if check_availability and "running" in svc_status:
+            checked_urls = []
+            for url in urls:
+                # Пропускаем URL с переменными которые не раскрылись
+                if '${' in url or '$PLATFORM_DOMAIN' in url:
+                    continue
+                checked_urls.append(url)
+                try:
+                    # Для HTTPS отключаем проверку SSL (self-signed сертификаты)
+                    response = requests.get(url, timeout=AVAILABILITY_TIMEOUT, verify=False)
+                    if response.status_code < 500:
+                        availability_status = "✓"
+                        break
+                    else:
+                        availability_status = f"✗ {response.status_code}"
+                except requests.exceptions.ConnectionError:
+                    availability_status = "✗ conn"
+                except requests.exceptions.Timeout:
+                    availability_status = "✗ timeout"
+                except Exception as e:
+                    console.print(f"[dim]Debug: availability check error for {url}: {type(e).__name__}: {e}[/dim]")
+                    availability_status = f"✗ {type(e).__name__}"
+            
+            # Если все проверки не прошли, но сервис running - ставим статус
+            if availability_status.startswith("✗") and len(checked_urls) > 0:
+                pass  # Оставляем последнюю ошибку
+            elif not checked_urls and "running" in svc_status:
+                availability_status = "?"  # Не смогли проверить
+        elif "running" in svc_status:
+            availability_status = "?"  # Сервис запущен, но проверка не включена
+
         short_path = str(info["path"].relative_to(PROJECT_ROOT))
         status_style = "green" if "running" in svc_status else "red"
-        table.add_row(name, info["type"], short_path, f"[{status_style}]{svc_status}[/{status_style}]")
+        avail_style = "green" if availability_status == "✓" else ("red" if availability_status.startswith("✗") else "white")
+        table.add_row(
+            name, 
+            info["type"], 
+            url_display, 
+            f"[{status_style}]{svc_status}[/{status_style}]",
+            f"[{avail_style}]{availability_status}[/{avail_style}]"
+        )
 
     console.print(table)
 
@@ -392,8 +694,8 @@ def status(service: str | None = typer.Argument(None, help="Имя сервис�
                             memory_mb = memory["usage"] / (1024 * 1024)
                             memory_limit_mb = memory["limit"] / (1024 * 1024)
                             console.print(f"[bold]Память:[/bold] {memory_mb:.1f}MB / {memory_limit_mb:.1f}MB")
-        except Exception:
-            pass
+        except Exception as e:
+            console.print(f"[dim]Debug: status memory check error: {type(e).__name__}: {e}[/dim]")
     else:
         list()
 
@@ -439,17 +741,21 @@ def backup(service: str = typer.Argument(..., help="Имя сервиса")):
         response = requests.post(
             f"{master_url}/api/backups/service/{service}/backup",
             json={"reason": "manual"},
-            timeout=10,
+            timeout=REQUEST_TIMEOUT,
         )
         if response.status_code == 200:
             result = response.json()
             console.print(f"[green]✅ Бэкап создан: {result.get('name', 'N/A')}[/green]")
         else:
-            console.print(f"[yellow]⚠️  API вернул статус {response.status_code}. Попробуйте вручную.[/yellow]")
+            console.print(f"[red]❌ API вернул статус {response.status_code}[/red]")
+            raise typer.Exit(1)
     except requests.exceptions.ConnectionError:
-        console.print("[yellow]⚠️  Master Service недоступен. Запустите бэкап вручную через restic.[/yellow]")
+        console.print("[red]❌ Master Service недоступен. Запустите бэкап вручную через restic.[/red]")
+        raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[yellow]⚠️  Ошибка: {e}[/yellow]")
+        console.print(f"[dim]Debug: backup request error: {type(e).__name__}: {e}[/dim]")
+        console.print(f"[red]❌ Ошибка: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -474,19 +780,47 @@ def info():
 
 
 @app.command()
-def reload():
+def reload(
+    container: str = typer.Option(CADDY_DEFAULT_CONTAINER_NAME, "--container", "-c", help="Имя контейнера Caddy"),
+):
     """Перезагрузить конфигурацию Caddy."""
-    console.print("[blue]ℹ️  Перезагрузка Caddy...[/blue]")
+    # Валидация имени контейнера
+    if not container or not container.replace("-", "").replace("_", "").isalnum():
+        console.print("[red]❌ Неверное имя контейнера[/red]")
+        raise typer.Exit(1)
+    
+    # Проверка существования контейнера
+    try:
+        check_result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}"],
+            capture_output=True, text=True, check=True
+        )
+        running_containers = check_result.stdout.strip().split('\n')
+        if container not in running_containers:
+            console.print(f"[red]❌ Контейнер '{container}' не найден или не запущен[/red]")
+            console.print("[yellow]Доступные контейнеры:[/yellow]")
+            for c in running_containers:
+                if c:
+                    console.print(f"  - {c}")
+            raise typer.Exit(1)
+    except subprocess.CalledProcessError as e:
+        console.print(f"[dim]Debug: Docker container check error: {type(e).__name__}: {e}[/dim]")
+        console.print("[red]❌ Ошибка проверки контейнеров Docker[/red]")
+        raise typer.Exit(1)
+    
+    console.print(f"[blue]ℹ️  Перезагрузка Caddy в контейнере '{container}'...[/blue]")
     try:
         result = subprocess.run(
-            ["docker", "exec", "caddy", "caddy", "reload", "--config", "/etc/caddy/Caddyfile"],
+            ["docker", "exec", container, "caddy", "reload", "--config", "/etc/caddy/Caddyfile"],
             capture_output=True, text=True, check=True
         )
         console.print("[green]✅ Caddy перезапущен[/green]")
     except subprocess.CalledProcessError as e:
+        console.print(f"[dim]Debug: Caddy reload error: {type(e).__name__}: {e.stderr.strip()}[/dim]")
         console.print(f"[red]❌ Ошибка: {e.stderr.strip()}[/red]")
         raise typer.Exit(1)
     except Exception as e:
+        console.print(f"[dim]Debug: Caddy reload unexpected error: {type(e).__name__}: {e}[/dim]")
         console.print(f"[red]❌ Ошибка: {e}[/red]")
         raise typer.Exit(1)
 
