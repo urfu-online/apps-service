@@ -388,5 +388,5 @@ tags:
 ## Ссылки
 
 - [Исходный код discovery.py](https://github.com/urfu-online/apps-service/blob/master/_core/master/app/services/discovery.py)
-- [Примеры service.yml в тестовых фикстурах](../_core/master/test-fixtures/services/)
+- Примеры service.yml в тестовых фикстурах (`_core/master/test-fixtures/services/`)
 - [Документация по маршрутизации Caddy](../development/caddy-configuration.md)

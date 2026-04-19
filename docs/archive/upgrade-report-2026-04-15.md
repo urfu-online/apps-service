@@ -136,12 +136,12 @@ ERROR: nicegui: Event loop already running
 
 В процессе обновления были созданы или обновлены следующие документы:
 
-1. **[update-platform.sh](update-platform.sh)** – скрипт автоматического обновления платформы.
-2. **[restart_core.sh](restart_core.sh)** – скрипт перезапуска core-сервисов.
-3. **[AGENTS.md](AGENTS.md)** – обновлен раздел о процессе обновления и gotchas.
-4. **[docs/development/deployment-runbook.md](docs/development/deployment-runbook.md)** – добавлен раздел "Platform Upgrade Procedure".
-5. **[docs/development/upgrade-to-release.md](docs/development/upgrade-to-release.md)** – создан новый документ с деталями перехода с platform-cli на main.
-6. **[docs/plan/deployment-runbook.md](docs/plan/deployment-runbook.md)** – обновлен план развертывания.
+1. **update-platform.sh** – скрипт автоматического обновления платформы.
+2. **restart_core.sh** – скрипт перезапуска core-сервисов.
+3. **AGENTS.md** – обновлен раздел о процессе обновления и gotchas.
+4. **[docs/development/deployment-runbook.md](../development/deployment-runbook.md)** – добавлен раздел "Platform Upgrade Procedure".
+5. **[docs/development/upgrade-to-release.md](../development/upgrade-to-release.md)** – создан новый документ с деталями перехода с platform-cli на main.
+6. **[docs/plan/deployment-runbook.md](../plan/deployment-runbook.md)** – обновлен план развертывания.
 
 ## Заключение
 

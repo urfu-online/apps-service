@@ -232,8 +232,8 @@ routing:
 
 ## Приложения
 
-- [Исходный анализ](DOCUMENTATION_ANALYSIS.md) (архив)
-- [Исходные рекомендации](DOCUMENTATION_RECOMMENDATIONS.md) (архив)
+- [Исходный анализ](../archive/DOCUMENTATION_ANALYSIS.md) (архив)
+- [Исходные рекомендации](../archive/DOCUMENTATION_RECOMMENDATIONS.md) (архив)
 - [Справочник service.yml](../reference/service-yml.md)
 - [Устранение неполадок](../TROUBLESHOOTING.md)
 
