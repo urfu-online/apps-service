@@ -180,9 +180,8 @@ def base_deployment_response_data(sample_datetime):
         "status": "completed",
         "started_at": sample_datetime,
         "finished_at": sample_datetime,
-        "logs": "Deployment completed successfully",
         "success": True,
-        "rollback_available": False,
+        "rollback_available": True,
     }
 
 
@@ -192,12 +191,11 @@ def base_backup_response_data(sample_datetime):
     return {
         "id": 1,
         "service_id": 1,
-        "filename": "backup_20240101_120000.tar.gz",
-        "size": 1024000,
+        "name": "backup_20240101",
         "timestamp": sample_datetime,
+        "size": 1024,
         "status": "completed",
-        "type": "full",
-        "checksum": "abc123def456",
+        "reason": "manual",
     }
 
 
@@ -218,11 +216,9 @@ def base_service_response_data():
 def base_tls_validation_response_data():
     """Базовые данные для тестирования TLSValidationResponse."""
     return {
-        "domain": "example.com",
-        "valid": True,
-        "expires_at": "2024-12-31T23:59:59Z",
-        "issued_by": "Let's Encrypt",
-        "certificate_chain": ["cert1", "cert2"],
+        "status": "ok",
+        "service": "test-service",
+        "domain": "test.example.com",
     }
 
 

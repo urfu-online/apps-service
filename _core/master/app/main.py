@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from nicegui import ui
 import asyncio
@@ -14,6 +14,8 @@ from app.services.docker_manager import DockerManager
 from app.services.backup_manager import BackupManager
 from app.services.log_manager import LogManager
 from app.api.routes import services, deployments, logs, backups, health, users, tls
+from app.ui.theme import apply_theme
+import logging
 
 
 # ──────────────────────────────────────────────
@@ -187,11 +189,9 @@ async def backup_schedule_loop(app: FastAPI):
 # ──────────────────────────────────────────────
 
 # Применяем единую тему
-from app.ui.theme import apply_theme
 apply_theme()
 
 # Подавляем известный баг NiceGUI с prune_user_storage
-import logging
 logging.getLogger('nicegui.nicegui').addFilter(
     lambda record: 'Request is not set' not in record.getMessage()
 )

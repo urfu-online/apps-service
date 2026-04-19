@@ -1,7 +1,7 @@
 """Тесты для Keycloak провайдера аутентификации."""
 import pytest
-from unittest.mock import AsyncMock, Mock, MagicMock, patch
-from app.core.security import KeycloakAuthProvider, get_keycloak_client
+from unittest.mock import MagicMock, patch
+from app.core.security import KeycloakAuthProvider
 
 
 class TestKeycloakAuthProvider:

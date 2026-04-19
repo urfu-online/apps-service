@@ -1,6 +1,6 @@
 """Тесты для встроенного провайдера аутентификации."""
 import pytest
-from unittest.mock import AsyncMock, Mock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from app.models.user import User
 from app.core.security import BuiltInAuthProvider
 
@@ -17,7 +17,7 @@ class TestBuiltInAuthProvider:
     async def test_authenticate_success(self, mock_auth_provider):
         """Тест успешной аутентификации."""
         # Подготавливаем моки
-        with patch("app.models.user.User") as MockUser:
+        with patch("app.models.user.User") as _:
             # Мокаем сессию БД
             mock_session = MagicMock()
             mock_query = MagicMock()
@@ -31,7 +31,7 @@ class TestBuiltInAuthProvider:
             mock_session.query.return_value.filter.return_value = mock_query
 
             with patch("app.core.database.SessionLocal") as mock_session_class:
-                mock_session_class.return_value.__enter__.return_value = mock_session
+                mock_session_class.return_value = mock_session
                 result = await mock_auth_provider.authenticate("testuser", "correctpassword")
 
             assert result is not None
@@ -41,7 +41,7 @@ class TestBuiltInAuthProvider:
     @pytest.mark.asyncio
     async def test_authenticate_user_not_found(self, mock_auth_provider):
         """Тест аутентификации с несуществующим пользователем."""
-        with patch("app.models.user.User") as MockUser:
+        with patch("app.models.user.User") as _:
             mock_session = MagicMock()
             mock_query = MagicMock()
             mock_query.first.return_value = None  # Пользователь не найден
@@ -49,7 +49,7 @@ class TestBuiltInAuthProvider:
             mock_session.query.return_value.filter.return_value = mock_query
 
             with patch("app.core.database.SessionLocal") as mock_session_class:
-                mock_session_class.return_value.__enter__.return_value = mock_session
+                mock_session_class.return_value = mock_session
                 result = await mock_auth_provider.authenticate("nonexistent", "password")
 
             assert result is None
@@ -70,7 +70,7 @@ class TestBuiltInAuthProvider:
         mock_session.query.return_value.filter.return_value = mock_query
 
         with patch("app.core.database.SessionLocal") as mock_session_class:
-            mock_session_class.return_value.__enter__.return_value = mock_session
+            mock_session_class.return_value = mock_session
             result = await mock_auth_provider.authenticate("testuser", "wrongpassword")
 
         assert result is None
@@ -89,7 +89,7 @@ class TestBuiltInAuthProvider:
         mock_session.query.return_value.filter.return_value = mock_query
 
         with patch("app.core.database.SessionLocal") as mock_session_class:
-            mock_session_class.return_value.__enter__.return_value = mock_session
+            mock_session_class.return_value = mock_session
             result = await mock_auth_provider.get_current_user("1")
 
         assert result is not None
@@ -104,7 +104,7 @@ class TestBuiltInAuthProvider:
         mock_session.query.return_value.filter.return_value.first.return_value = None
 
         with patch("app.core.database.SessionLocal") as mock_session_class:
-            mock_session_class.return_value.__enter__.return_value = mock_session
+            mock_session_class.return_value = mock_session
             result = await mock_auth_provider.get_current_user("invalid_token")
 
         assert result is None
@@ -137,7 +137,7 @@ class TestBuiltInAuthProvider:
             MockUserClass.is_superuser = MagicMock()
 
             with patch("app.core.database.SessionLocal") as mock_session_class:
-                mock_session_class.return_value.__enter__.return_value = mock_session
+                mock_session_class.return_value = mock_session
                 result = await mock_auth_provider.create_user("newuser", "password", [])
 
             # Убеждаемся, что добавили пользователя в сессию и зафиксировали
@@ -155,7 +155,7 @@ class TestBuiltInAuthProvider:
         mock_session.query.return_value.filter.return_value.first.return_value = existing_user
 
         with patch("app.core.database.SessionLocal") as mock_session_class:
-            mock_session_class.return_value.__enter__.return_value = mock_session
+            mock_session_class.return_value = mock_session
             result = await mock_auth_provider.create_user("existinguser", "password", [])
 
         assert result is None

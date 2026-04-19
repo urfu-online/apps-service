@@ -1,5 +1,4 @@
 """Пример модульного теста."""
-import pytest
 
 
 def test_example():

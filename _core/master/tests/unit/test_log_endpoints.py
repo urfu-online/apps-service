@@ -1,5 +1,4 @@
 """Тесты для моделей - общие проверки дублирующихся Pydantic-моделей."""
-import pytest
 
 
 class TestSharedLogModels:

@@ -21,5 +21,5 @@
 |---|---|
 | GitHub Issues | [urfu-online/apps-service/issues](https://github.com/urfu-online/apps-service/issues) |
 | GitHub Project | [Apps Service Roadmap](https://github.com/orgs/urfu-online/projects/5) |
-| План задач | [docs/plan/](docs/plan/) |
+| План задач | [docs/plan/](../plan/README.md) |
 | Полная документация | [MkDocs сайт](https://urfu-online.github.io/apps-service/) |

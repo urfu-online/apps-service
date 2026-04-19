@@ -1,0 +1,55 @@
+name: Публикация документации на GitHub Pages
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:  # Ручной запуск
+
+# Разрешения для записи в ветку gh-pages
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout репозитория
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Нужно для работы с историей веток
+
+      - name: Установка Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Кэширование pip-пакетов
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt', '**/pyproject.toml', '**/setup.py', '**/Pipfile') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Установка зависимостей MkDocs
+        run: |
+          pip install mkdocs mkdocs-material pymdown-extensions
+          mkdocs --version
+
+      - name: Проверка сборки документации (строгий режим)
+        run: mkdocs build --strict --site-dir ./site
+
+      - name: Публикация на GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./site
+          force_orphan: true  # Очистить ветку перед публикацией
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+          commit_message: 'docs: автоматическое обновление документации'

@@ -5,8 +5,6 @@ from nicegui import ui
 from app.ui.components.base import (
     create_header,
     create_stat_card,
-    create_status_chip,
-    create_icon_button,
     create_empty_state,
 )
 

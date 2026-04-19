@@ -1,7 +1,7 @@
 """Компонент просмотра логов."""
 from nicegui import ui
 from datetime import datetime, timezone
-from typing import List, Optional, Callable
+from typing import List, Optional
 from enum import Enum
 
 
@@ -142,7 +142,7 @@ class LogViewer(ui.column):
             return
         
         # Создаем текстовую версию для экспорта
-        text_content = '\n'.join(self._strip_html(entry) for entry in self._entries)
+        _ = '\n'.join(self._strip_html(entry) for entry in self._entries)
         
         # В реальной реализации здесь будет скачивание файла
         ui.notify('Экспорт логов подготовлен', type='info')

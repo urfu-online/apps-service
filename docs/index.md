@@ -4,7 +4,7 @@
 
 - [Установка](getting-started/install.md) — `./install.sh`, что происходит
 - [Первый сервис](getting-started/first-service.md) — service.yml + docker-compose.yml
-- [CLI и UI](getting-started/cli-ui.md) — ops, platform, NiceGUI
+- [CLI и UI](getting-started/cli-ui.md) — platform CLI, NiceGUI UI
 
 ## Пользователю
 

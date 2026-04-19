@@ -217,7 +217,6 @@ class BackupsPage:
     async def _handle_restore(self, backup_data: Dict):
         """Обработка восстановления из бэкапа."""
         backup_name = backup_data.get('backup_name', '')
-        service_name = backup_data.get('service_name', 'сервис')
 
         with ui.dialog() as dialog, ui.card().classes('p-6 w-96'):
             ui.label('Восстановление из бэкапа').classes('text-h6 mb-4')
@@ -233,7 +232,6 @@ class BackupsPage:
 
     async def _confirm_restore(self, backup_data: Dict, dialog):
         """Подтверждение восстановления."""
-        from app.main import app
 
         dialog.close()
         ui.notify('Восстановление...', type='info', timeout=None)
@@ -261,7 +259,6 @@ class BackupsPage:
 
     async def _confirm_delete(self, backup_data: Dict, dialog):
         """Подтверждение удаления."""
-        from app.main import app
 
         dialog.close()
         ui.notify('Удаление бэкапа...', type='info', timeout=None)

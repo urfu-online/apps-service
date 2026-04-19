@@ -1,5 +1,4 @@
 """Тесты для endpoints TLS - Pydantic модели."""
-import pytest
 
 
 class TestTLSModels:

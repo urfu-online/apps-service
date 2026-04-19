@@ -3,9 +3,6 @@
 Примечание: Полные endpoint тесты через TestClient не работают из-за NiceGUI инициализации.
 Тестируем роутеры напрямую с моками.
 """
-import pytest
-from unittest.mock import Mock, MagicMock, AsyncMock
-from app.services.discovery import ServiceManifest
 from .test_model_utils import ModelTestFixture
 
 

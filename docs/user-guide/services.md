@@ -48,6 +48,8 @@ tags:
 
 # === ТИП СЕРВИСА ===
 type: docker-compose  # docker-compose | docker | static | external
+!!! warning "Типы static и external не реализованы"
+    В текущей версии поддерживается только `docker-compose`. Типы `static` и `external` зарезервированы для будущих версий.
 
 # === ВИДИМОСТЬ ===
 visibility: public    # public | internal
@@ -93,6 +95,8 @@ health:
   retries: 3
 
 # === РЕСУРСЫ ===
+!!! warning "Ограничения ресурсов не реализованы"
+    В текущей версии ограничения памяти и CPU не применяются. Планируется добавить в будущих версиях.
 resources:
   memory_limit: 512M
   cpu_limit: 0.5
@@ -111,6 +115,8 @@ backup:
       database: myservice
 
 # === ЛОГИРОВАНИЕ ===
+!!! warning "Логирование в Loki не реализовано"
+    В текущей версии сбор логов через Loki не реализован. Логи доступны только через Docker API и команду `platform logs`.
 logging:
   driver: loki
   labels:
@@ -118,6 +124,8 @@ logging:
     - level
 
 # === ЗАВИСИМОСТИ ===
+!!! warning "Зависимости не реализованы"
+    В текущей версии зависимости не обрабатываются. Сервисы должны управлять своими зависимостями самостоятельно.
 dependencies:
   services:
     - postgres
@@ -130,11 +138,15 @@ environment:
   LOG_LEVEL: info
 
 # === СЕКРЕТЫ (ссылки) ===
+!!! warning "Секреты не реализованы"
+    В текущей версии секреты не поддерживаются. Используйте переменные окружения в `.env` файле.
 secrets:
   - DATABASE_URL
   - API_KEY
 
 # === ХУКИ ===
+!!! warning "Хуки не реализованы"
+    В текущей версии хуки не выполняются. Планируется добавить в будущих версиях.
 hooks:
   post_deploy:
     - "./scripts/migrate.sh"
@@ -142,6 +154,8 @@ hooks:
     - "./scripts/prepare-backup.sh"
 
 # === УВЕДОМЛЕНИЯ ===
+!!! warning "Уведомления ограничены"
+    В текущей версии поддерживаются только Telegram-уведомления о сбоях health check. Уведомления о deploy и error не реализованы.
 notifications:
   telegram: true
   events:

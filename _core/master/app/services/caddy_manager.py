@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 import logging
 
 from app.services.discovery import ServiceManifest
-from app.config import settings
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -232,11 +231,13 @@ class CaddyManager:
             logger.error(f"Error connecting to Caddy API: {e}")
             # Fallback: reload через Docker
             try:
-                import docker
-                client = docker.from_env()
-                container = client.containers.get("caddy")
-                container.kill(signal="SIGUSR1")
-                logger.info("Caddy reloaded via SIGUSR1 signal")
+                from app.utils.docker_client import docker_client
+
+                # Важно: закрываем docker client, чтобы не протекали ресурсы при ошибках API.
+                with docker_client() as client:
+                    container = client.containers.get("caddy")
+                    container.kill(signal="SIGUSR1")
+                    logger.info("Caddy reloaded via SIGUSR1 signal")
             except Exception as docker_error:
                 logger.error(f"Failed to reload Caddy via Docker: {docker_error}")
         except Exception as e:

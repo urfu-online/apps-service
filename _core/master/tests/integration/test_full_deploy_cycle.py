@@ -7,8 +7,7 @@
 4. DockerManager подготавливает команды деплоя (dry-run)
 """
 import pytest
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+from unittest.mock import AsyncMock, patch
 
 
 @pytest.mark.asyncio

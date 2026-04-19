@@ -1,12 +1,11 @@
 import asyncio
-from pathlib import Path
-from typing import Optional, Dict, Any
 import logging
-import docker
-from docker.errors import NotFound, APIError
+from typing import Any, Dict, Optional
+
 
 from app.services.discovery import ServiceManifest
 from app.services.notifier import TelegramNotifier
+from app.utils.docker_client import docker_client
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -16,7 +15,6 @@ class DockerManager:
     """Управление Docker контейнерами и compose проектами"""
 
     def __init__(self, notifier: TelegramNotifier):
-        self.client = docker.from_env()
         self.notifier = notifier
     
     async def deploy_service(
@@ -135,13 +133,13 @@ class DockerManager:
         
         # Pull если нужно
         if pull:
-            pull_result = await self._run_command(
+            await self._run_command(
                 cmd + ["pull"]
             )
         
         # Build если нужно
         if build:
-            build_result = await self._run_command(
+            await self._run_command(
                 cmd + ["build", "--no-cache"]
             )
         
@@ -166,11 +164,10 @@ class DockerManager:
             ])
         else:
             # Остановка по label
-            containers = self.client.containers.list(
-                filters={"label": f"platform.service={service.name}"}
-            )
-            for container in containers:
-                container.stop()
+            with docker_client() as client:
+                containers = client.containers.list(filters={"label": f"platform.service={service.name}"})
+                for container in containers:
+                    container.stop()
             result = {"returncode": 0, "stdout": "OK", "stderr": ""}
         
         return {
@@ -187,11 +184,10 @@ class DockerManager:
                 "restart"
             ])
         else:
-            containers = self.client.containers.list(
-                filters={"label": f"platform.service={service.name}"}
-            )
-            for container in containers:
-                container.restart()
+            with docker_client() as client:
+                containers = client.containers.list(filters={"label": f"platform.service={service.name}"})
+                for container in containers:
+                    container.restart()
             result = {"returncode": 0, "stdout": "OK", "stderr": ""}
         
         return {
@@ -207,68 +203,59 @@ class DockerManager:
     ) -> str:
         """Получение логов сервиса"""
         logs = []
-        
-        containers = self.client.containers.list(
-            all=True,
-            filters={"label": f"platform.service={service.name}"}
-        )
-        
-        for container in containers:
-            container_logs = container.logs(
-                tail=tail,
-                since=since,
-                timestamps=True
-            ).decode('utf-8')
-            logs.append(f"=== {container.name} ===\n{container_logs}")
+
+        with docker_client() as client:
+            containers = client.containers.list(all=True, filters={"label": f"platform.service={service.name}"})
+
+            for container in containers:
+                container_logs = container.logs(tail=tail, since=since, timestamps=True).decode("utf-8")
+                logs.append(f"=== {container.name} ===\n{container_logs}")
         
         return "\n\n".join(logs)
     
     async def get_stats(self, service: ServiceManifest) -> Dict[str, Any]:
         """Получение статистики использования ресурсов"""
         stats = {}
-        
-        containers = self.client.containers.list(
-            filters={"label": f"platform.service={service.name}"}
-        )
-        
-        for container in containers:
-            try:
-                container_stats = container.stats(stream=False)
-                
-                # CPU
-                cpu_delta = (
-                    container_stats['cpu_stats']['cpu_usage']['total_usage'] -
-                    container_stats['precpu_stats']['cpu_usage']['total_usage']
-                )
-                system_delta = (
-                    container_stats['cpu_stats']['system_cpu_usage'] -
-                    container_stats['precpu_stats']['system_cpu_usage']
-                )
-                cpu_percent = (cpu_delta / system_delta) * 100.0 if system_delta > 0 else 0
-                
-                # Memory
-                memory_usage = container_stats['memory_stats'].get('usage', 0)
-                memory_limit = container_stats['memory_stats'].get('limit', 1)
-                memory_percent = (memory_usage / memory_limit) * 100.0
-                
-                stats[container.name] = {
-                    "cpu_percent": round(cpu_percent, 2),
-                    "memory_usage_mb": round(memory_usage / 1024 / 1024, 2),
-                    "memory_limit_mb": round(memory_limit / 1024 / 1024, 2),
-                    "memory_percent": round(memory_percent, 2),
-                    "status": container.status
-                }
-            except Exception as e:
-                logger.error(f"Error getting stats for container {container.name}: {e}")
-                stats[container.name] = {
-                    "error": str(e)
-                }
+
+        with docker_client() as client:
+            containers = client.containers.list(filters={"label": f"platform.service={service.name}"})
+
+            for container in containers:
+                try:
+                    container_stats = container.stats(stream=False)
+
+                    # CPU
+                    cpu_delta = (
+                        container_stats["cpu_stats"]["cpu_usage"]["total_usage"]
+                        - container_stats["precpu_stats"]["cpu_usage"]["total_usage"]
+                    )
+                    system_delta = (
+                        container_stats["cpu_stats"]["system_cpu_usage"]
+                        - container_stats["precpu_stats"]["system_cpu_usage"]
+                    )
+                    cpu_percent = (cpu_delta / system_delta) * 100.0 if system_delta > 0 else 0
+
+                    # Memory
+                    memory_usage = container_stats["memory_stats"].get("usage", 0)
+                    memory_limit = container_stats["memory_stats"].get("limit", 1)
+                    memory_percent = (memory_usage / memory_limit) * 100.0
+
+                    stats[container.name] = {
+                        "cpu_percent": round(cpu_percent, 2),
+                        "memory_usage_mb": round(memory_usage / 1024 / 1024, 2),
+                        "memory_limit_mb": round(memory_limit / 1024 / 1024, 2),
+                        "memory_percent": round(memory_percent, 2),
+                        "status": container.status,
+                    }
+                except Exception as e:
+                    logger.error(f"Error getting stats for container {container.name}: {e}")
+                    stats[container.name] = {"error": str(e)}
         
         return stats
     
     async def _run_command(self, cmd: list) -> Dict[str, Any]:
         """Асинхронное выполнение команды"""
-        logger.info(f"Running command: {' '.join(cmd)}")
+        logger.debug(f"Running command: {' '.join(cmd)}")
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -284,5 +271,5 @@ class DockerManager:
             "stderr": stderr.decode('utf-8')
         }
         
-        logger.info(f"Command result: {result}")
+        logger.debug(f"Command result: {result}")
         return result

@@ -1,5 +1,4 @@
 """Тесты для endpoints бэкапов - Pydantic модели."""
-import pytest
 from datetime import datetime, timezone
 
 
