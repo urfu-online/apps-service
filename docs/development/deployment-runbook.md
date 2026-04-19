@@ -136,7 +136,7 @@ curl -s http://localhost:80/ -o /dev/null -w "%{http_code}"
 sudo docker logs platform-master --tail 50
 
 # Проверить что сервисы на месте
-cd /apps && ops list   # или platform list
+cd /apps && platform list   # или platform list
 
 # Проверить сеть Docker
 sudo docker network ls | grep platform_network
@@ -204,7 +204,7 @@ sudo docker logs platform-caddy
 ```
 
 ### Проблема 3: Ветка platform-cli осталась активной
-**Симптомы:** Команды `ops` не работают, потому что код CLI устарел.
+**Симптомы:** Команды `platform` не работают, потому что код CLI устарел.
 **Решение:** Переключиться на main и перезапустить core:
 ```bash
 cd /apps
@@ -239,7 +239,7 @@ sudo docker network create platform_network
 - [ ] Бэкап БД сделан (с sudo)
 - [ ] Бэкап сервисов сделан (с sudo)
 - [ ] Бэкап Caddy конфига сделан (с sudo)
-- [ ] Список сервисов записан (`ops list > /tmp/services-before.txt`)
+- [ ] Список сервисов записан (`platform list > /tmp/services-before.txt`)
 - [ ] Проверена текущая ветка (`git branch`)
 - [ ] Проверена синхронизация poetry.lock
 - [ ] Есть план отката (бэкапы на месте)

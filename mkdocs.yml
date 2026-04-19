@@ -79,12 +79,20 @@ nav:
       - development/workflow.md
       - development/master-service.md
       - development/testing.md
+      - development/caddy-configuration.md
+      - development/deployment-runbook.md
+      - development/upgrade-to-release.md
+      - development/release-process.md
       - development/guides-wishlist.md
+      - AI_CONTEXT.md
   - Справочник:
       - architecture.md
       - api.md
       - examples.md
       - best-practices.md
+      - reference/service-yml.md
+      - TROUBLESHOOTING.md
+      - meta/documentation-audit-2026-04.md
 
 plugins:
   - search:

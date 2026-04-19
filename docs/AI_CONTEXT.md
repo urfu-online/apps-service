@@ -1,24 +1,25 @@
 # AI Context: apps-service-opus
 
-## 1. Архитектура и стек
+## 1. Архитектура и стек [АКТУАЛЬНО]
 
 ### Компоненты
 
-- **Master Service** (`_core/master/`): FastAPI + NiceGUI, Python 3.11-3.13
-- **Caddy Proxy** (`_core/caddy/`): Reverse proxy с on-demand TLS, Admin API на :2019
+- **Master Service** (`_core/master/`): FastAPI + NiceGUI, Python 3.12.7 (основная), совместимость с 3.11-3.13
+- **Caddy Proxy** (`_core/caddy/`): Reverse proxy с on-demand TLS, Admin API на 127.0.0.1:2019
 - **Docker**: Управление контейнерами через aiodocker/docker SDK
 - **Service Discovery**: Сканирование `services/{public,internal}/`
+- **Keycloak** (опционально): Аутентификация, порт 8080 (если включена)
 
 ### Порты
 
-| Сервис      | Порт | Назначение                     |
-| ----------- | ---- | ------------------------------ |
-| Master API  | 8000 | REST API                       |
-| Master UI   | 8001 | NiceGUI интерфейс              |
-| Caddy HTTP  | 80   | Входящий трафик                |
-| Caddy HTTPS | 443  | TLS трафик                     |
-| Caddy Admin | 2019 | Caddy API (внутри сети)        |
-| Keycloak    | 8080 | Аутентификация (если включена) |
+| Сервис      | Порт | Назначение                     | Примечание |
+| ----------- | ---- | ------------------------------ | ---------- |
+| Master API  | 8000 | REST API                       | Внутри контейнера; наружу пробрасывается через Caddy |
+| Master UI   | 8001 | NiceGUI интерфейс              | Проброс host:8001 → container:8000 |
+| Caddy HTTP  | 80   | Входящий трафик                | |
+| Caddy HTTPS | 443  | TLS трафик                     | |
+| Caddy Admin | 2019 | Caddy API (только localhost)   | Проброс 127.0.0.1:2019 → container:2019 |
+| Keycloak    | 8080 | Аутентификация (если включена) | |
 
 ### Flow деплоя
 
@@ -29,7 +30,7 @@
 4. DockerManager.deploy_service() → docker compose up -d
 ```
 
-## 2. Конвенции и правила
+## 2. Конвенции и правила [АКТУАЛЬНО]
 
 ### Структура сервисов
 
@@ -46,33 +47,35 @@ services/
 ### service.yml схема
 
 ```yaml
-name: string # Уникальное имя (slug)
-display_name: string # Человекочитаемое
-version: string
-type: docker-compose # docker-compose | docker | static
-visibility: public # public | internal
-routing: # Список маршрутов
-  - type: domain # domain | subfolder | port | auto_subdomain
-    domain: example.com # Для type=domain
+name: string                    # Уникальное имя (slug)
+display_name: string            # Человекочитаемое
+version: string                 # Версия сервиса
+description: string             # Описание (опционально)
+type: docker-compose            # docker-compose | docker | static
+visibility: internal            # public | internal (по умолчанию internal)
+routing:                        # Список маршрутов
+  - type: domain                # domain | subfolder | port | auto_subdomain
+    domain: example.com         # Для type=domain
     base_domain: apps.urfu.online # Для auto_subdomain/subfolder
-    path: /service # Для type=subfolder
-    port: 8080 # Для type=port
-    internal_port: 8000 # Порт контейнера
-    container_name: string # Имя контейнера для проксирования
-    auto_subdomain: bool # {name}.base_domain
+    path: /service              # Для type=subfolder
+    port: 8080                  # Для type=port
+    internal_port: 8000         # Порт контейнера
+    container_name: string      # Имя контейнера для прямого проксирования
+    strip_prefix: true          # Удалять префикс пути при проксировании
+    auto_subdomain: bool        # {name}.base_domain
     auto_subdomain_base: apps.urfu.online
 health:
   enabled: true
-  endpoint: /health # Путь проверки
+  endpoint: /health             # Путь проверки
   interval: 30s
   timeout: 10s
   retries: 3
 backup:
   enabled: false
-  schedule: "0 2 * * *" # cron-формат
-  retention: 7 # Дней хранения
-  paths: [] # Пути для бэкапа
-  databases: [] # Конфиг БД
+  schedule: "0 2 * * *"         # cron-формат
+  retention: 7                  # Дней хранения
+  paths: []                     # Пути для бэкапа
+  databases: []                 # Конфиг БД
 tags: []
 ```
 
@@ -90,7 +93,7 @@ tags: []
 - НЕ использовать `..` в путях бэкапа (path traversal check)
 - НЕ запускать Docker напрямую — использовать DockerManager
 
-## 3. Карта критических файлов
+## 3. Карта критических файлов [АКТУАЛЬНО]
 
 | Зона                | Ключевые файлы                                | Назначение                                          |
 | ------------------- | --------------------------------------------- | --------------------------------------------------- |
@@ -112,8 +115,9 @@ tags: []
 | **Caddyfile**       | `_core/caddy/Caddyfile`                       | On-demand TLS, Admin API, импорты                   |
 | **Templates**       | `_core/caddy/templates/*.caddy.j2`            | Jinja2: domain, subfolder, port, auto_subdomain     |
 | **Ops Config**      | `.ops-config.yml`                             | Корневые пути, docker_host                          |
+| **Docker Client**   | `_core/master/app/utils/docker_client.py`     | Инициализация Docker клиента                        |
 
-## 4. Ограничения и подводные камни
+## 4. Ограничения и подводные камни [АКТУАЛЬНО]
 
 ### Pytest
 
@@ -124,25 +128,25 @@ tags: []
 ### Caddy
 
 - On-demand TLS требует валидацию через `/api/tls/validate`
-- Admin API на `0.0.0.0:2019` — без auth внутри Docker сети
+- Admin API на `127.0.0.1:2019` (только localhost) — без auth внутри Docker сети
 - Config reload через POST `/load` или SIGUSR1 fallback
 - `conf.d/development.caddy` импортируется только в `APP_ENV=dev`
 
 ### Health Checks
 
-- Запускаются каждые 30 секунд из `health_check_loop()`
+- Запускаются каждые 30 секунд из `health_check_loop()` в `main.py`
 - Требуют `endpoint` в service.yml — иначе сервис всегда "healthy"
-- Нет таймаута на уровне цикла — только в `aiohttp.ClientTimeout`
+- Таймаут парсится из строки (например, "10s") функцией `_parse_timeout()` в `health_checker.py`
 
 ### Backup
 
-- **Restic загрузка не работает** — скрипты есть, логика вызова в backup_manager.py, но окружение не настроено
+- **Restic загрузка не работает** — скрипты есть, логика вызова в backup_manager.py, но окружение не настроено (требуются `RESTIC_REPOSITORY` и `RESTIC_PASSWORD`)
 - Работает: rsync, pg_dump, mysqldump, локальное хранение
 - Retention очистка по `metadata.json` timestamp
 
 ### Service Discovery
 
-- Использ watchdog.observers.Observer — возможны утечки при рестартах
+- Использует watchdog.observers.Observer — возможны утечки при рестартах
 - `_deep_merge()` рекурсивный — списки заменяются целиком
 - Local override применяется после основного манифеста
 
@@ -163,14 +167,14 @@ tags: []
 - Сеть `platform_network` должна существовать
 - Тестовый образ: `infra/test-env/Dockerfile`
 
-## 5. Правила для AI
+## 5. Правила для AI [АКТУАЛЬНО]
 
 ### При изменении кода
 
 1. **Сначала читай**: `service.yml` схему в `discovery.py`
 2. **Проверяй conftest.py**: есть ли мок для изменяемого сервиса
 3. **Запускай тесты**: `make test` или `pytest --asyncio-mode=auto`
-4. **Ruff**: строка 120 символов (E, F, W, I, N, UP, B, C4)
+4. **Ruff**: строка 120 символов (E, F, W, I, N, UP, B, C4) — в master service ruff не настроен, но рекомендуется придерживаться тех же правил
 
 ### При добавлении endpoint
 
@@ -189,8 +193,8 @@ tags: []
 ### При изменении моделей
 
 1. SQLAlchemy модели в `app/models/`
-2. Pydantic схемы для API — [UNVERIFIED] (возможно отсутствуют)
-3. Создать миграцию — [UNVERIFIED] (alembic не настроен, см. plan/9-alembic-migrations.md)
+2. Pydantic схемы для API — присутствуют в `app/api/routes/*.py` и `app/models/*.py`
+3. Создать миграцию — Alembic не настроен (см. plan/9-alembic-migrations.md)
 4. Обновить fixtures в `conftest.py`
 
 ### Что игнорировать
