@@ -1,17 +1,40 @@
 """Интеграционные тесты API для endpoints пользователей."""
-import pytest
-from httpx import AsyncClient
-from app.main import app
-from app.core.security import BuiltInAuthProvider, set_auth_provider
-from app.core.database import SessionLocal
-from app.models.user import User
+from __future__ import annotations
+
 import bcrypt
+import httpx
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
-@pytest.fixture
-def client():
+@pytest_asyncio.fixture
+async def client(tmp_path, monkeypatch):
     """Фикстура TestClient для интеграционных тестов."""
-    return AsyncClient(app=app, base_url="http://testserver")
+
+    # В CI/локально путь `sqlite:///./master.db` может быть недоступен (cwd/права). Поэтому
+    # переопределяем engine/SessionLocal на тестовую sqlite БД ДО импорта `app.main`.
+    import app.core.database as database
+
+    test_db_url = f"sqlite:///{tmp_path / 'test.db'}"
+    test_engine = create_engine(test_db_url, connect_args={"check_same_thread": False}, echo=False, pool_pre_ping=True)
+    TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+    monkeypatch.setattr(database, "engine", test_engine, raising=True)
+    monkeypatch.setattr(database, "SessionLocal", TestSessionLocal, raising=True)
+    monkeypatch.setattr(database.db_manager, "engine", test_engine, raising=True)
+    monkeypatch.setattr(database.db_manager, "SessionLocal", TestSessionLocal, raising=True)
+
+    # Создаём таблицы в тестовой БД заранее.
+    database.get_base().metadata.create_all(bind=test_engine)
+
+    from app.main import app
+
+    transport = httpx.ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
+        yield ac
 
 
 @pytest.mark.asyncio
@@ -19,10 +42,15 @@ async def test_user_crud_integration(client):
     """Интеграционный тест CRUD операций для пользователей."""
     # Подготовка: создаем суперпользователя для выполнения операций
     # и настраиваем аутентификацию
+    from app.core.security import BuiltInAuthProvider, set_auth_provider
+
     auth_provider = BuiltInAuthProvider()
     set_auth_provider(auth_provider)
 
     # Создание суперпользователя напрямую в БД
+    from app.core.database import SessionLocal
+    from app.models.user import User
+
     db = SessionLocal()
     try:
         # Хешируем пароль для суперпользователя

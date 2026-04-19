@@ -4,8 +4,6 @@ from keycloak import KeycloakOpenID
 from keycloak.exceptions import KeycloakAuthenticationError, KeycloakGetError
 from typing import Optional, Dict, Any, List
 from abc import ABC, abstractmethod
-from sqlalchemy.orm import Session
-import bcrypt
 import logging
 
 from app.config import settings
@@ -80,7 +78,7 @@ class BuiltInAuthProvider(AuthProvider):
 
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.username == username, User.is_active == True).first()
+            user = db.query(User).filter(User.username == username, User.is_active).first()
             if not user or not user.check_password(password):
                 return None
             return user.to_dict()
@@ -101,7 +99,7 @@ class BuiltInAuthProvider(AuthProvider):
 
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+            user = db.query(User).filter(User.id == user_id, User.is_active).first()
             return user.to_dict() if user else None
         except Exception as e:
             logger.error(f"Ошибка получения пользователя: {e}")

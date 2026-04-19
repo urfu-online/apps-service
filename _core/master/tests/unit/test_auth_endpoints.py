@@ -1,6 +1,6 @@
 """Тесты для аутентификации через auth providers."""
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 from app.core.security import BuiltInAuthProvider, KeycloakAuthProvider
 
 

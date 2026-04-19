@@ -1,9 +1,9 @@
 """Тесты для endpoints пользователей - CRUD полные тесты."""
 import pytest
-from unittest.mock import AsyncMock, Mock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException
 from app.models.user import User
-from app.api.routes.users import router, create_user, get_user, update_user, delete_user, list_users
+from app.api.routes.users import create_user, get_user, update_user, delete_user, list_users
 
 
 class TestUserEndpointsFullCRUD:
@@ -40,36 +40,28 @@ class TestUserEndpointsFullCRUD:
         user_mock.is_active = True
         user_mock.is_superuser = is_superuser
         
-        # Настраиваем провайдер аутентификации
-        with patch("app.api.routes.users.BuiltInAuthProvider") as AuthProviderMock:
-            auth_provider_instance = MagicMock()
-            auth_provider_instance.create_user = AsyncMock(return_value=user_data)
-            
-            AuthProviderMock.return_value = auth_provider_instance
-            
-            # Настраиваем моки для проверки существования пользователя (сначала None - пользователь не существует)
-            db_mock.query.return_value.filter.return_value.first.return_value = None
-            
-            # Выполнение запроса
+        # В routes.users провайдер создаётся на уровне модуля, поэтому патчим именно instance.
+        with patch("app.api.routes.users.auth_provider") as auth_provider_mock:
+            auth_provider_mock.create_user = AsyncMock(return_value=user_data)
+
+            # 1-й вызов: проверка существования пользователя -> None
+            # 2-й вызов: получение созданного пользователя для обновления полей -> user_mock
+            first_mock = db_mock.query.return_value.filter.return_value.first
+            first_mock.side_effect = [None, user_mock]
+
             result = await create_user(
                 username=username,
                 password=password,
                 email=email,
                 is_superuser=is_superuser,
                 current_user=current_user,
-                db=db_mock
+                db=db_mock,
             )
-            
-            # Проверки
-            assert "message" in result
+
             assert result["message"] == "User created successfully"
-            assert "user" in result
             assert result["user"]["username"] == username
-            
-            # Проверка вызова создания пользователя
-            auth_provider_instance.create_user.assert_called_once_with(username, password, [])
-            
-            # Проверка обновления дополнительных полей
+            auth_provider_mock.create_user.assert_called_once_with(username, password, [])
+
             assert user_mock.email == email
             assert user_mock.is_superuser == is_superuser
             db_mock.commit.assert_called()

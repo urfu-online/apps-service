@@ -1,7 +1,6 @@
 """Тесты для Pydantic-моделей - общие фикстуры и утилиты."""
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
 from typing import Type, Dict, Any
 
 

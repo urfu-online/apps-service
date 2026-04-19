@@ -1,6 +1,4 @@
 """Тесты для моделей - общие проверки дублирующихся Pydantic-моделей."""
-import pytest
-from datetime import datetime, timezone
 
 from .test_model_utils import ModelTestFixture
 

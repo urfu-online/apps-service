@@ -4,7 +4,8 @@
       "type": "streamable-http",
       "url": "https://gitmcp.io/urfu-online/apps-service",
       "disabledTools": [
-        "search_apps_service_documentation"
+        "search_apps_service_documentation",
+        "fetch_apps_service_documentation"
       ],
       "alwaysAllow": []
     }

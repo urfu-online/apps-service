@@ -156,7 +156,6 @@ async def rollback_deployment(
     db.commit()
     
     # Запускаем откат в фоне
-    from app.main import app
     _create_tracked_task(
         _execute_rollback(deployment.id)
     )

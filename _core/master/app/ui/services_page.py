@@ -4,7 +4,6 @@ from typing import List, Optional
 
 from app.ui.components.base import (
     create_header,
-    create_icon_button,
     create_empty_state,
 )
 

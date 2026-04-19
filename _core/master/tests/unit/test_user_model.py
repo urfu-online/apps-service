@@ -2,7 +2,7 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.models.user import User, Role, user_roles
+from app.models.user import User, Role
 from app.core.database import Base
 
 

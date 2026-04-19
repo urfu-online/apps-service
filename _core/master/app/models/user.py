@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Table
 from sqlalchemy.orm import relationship
-from typing import List, Optional
+from typing import List
 import bcrypt
 from app.core.database import get_base
 

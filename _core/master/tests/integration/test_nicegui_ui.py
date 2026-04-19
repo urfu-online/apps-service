@@ -1,5 +1,15 @@
 """Тесты для NiceGUI UI компонентов."""
+from __future__ import annotations
+
+import importlib.util
+
 import pytest
+
+
+if importlib.util.find_spec("playwright") is None:
+    pytest.skip("playwright не установлен (опциональная зависимость для UI-тестов)", allow_module_level=True)
+
+
 from playwright.async_api import Page
 
 import sys

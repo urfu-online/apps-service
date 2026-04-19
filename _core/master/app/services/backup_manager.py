@@ -1,13 +1,11 @@
 import asyncio
-import html
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import json
 import logging
 import aiofiles
 from croniter import croniter
-import subprocess
 import os
 
 from app.models.service import Service

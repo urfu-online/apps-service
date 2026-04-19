@@ -2,20 +2,32 @@
 Тесты для CLI модуля apps_platform.cli
 """
 import os
-import pytest
+from pathlib import Path
 from unittest.mock import patch
+
+import pytest
+from click.exceptions import Exit
+from typer.testing import CliRunner
+
+from apps_platform.caddy_parser import parse_caddy_config
 
 # Импортируем функции для тестирования
 from apps_platform.cli import (
-    _expand_env_vars,
-    _matches_service,
-    _parse_caddy_config,
-    MAX_URLS_DISPLAY,
     AVAILABILITY_TIMEOUT,
     CADDY_DEFAULT_CONTAINER_NAME,
     DOCKER_TIMEOUT,
+    MAX_URLS_DISPLAY,
     REQUEST_TIMEOUT,
+    _expand_env_vars,
+    _get_ssl_verify,
+    _matches_service,
+    _parse_caddy_config,
+    _parse_compose_port_mapping,
+    app,
+    validate_service_name,
 )
+
+runner = CliRunner()
 
 
 class TestConstants:
@@ -132,15 +144,15 @@ class TestParseCaddyConfig:
         caddy_path = tmp_path / "caddy"
         conf_d = caddy_path / "conf.d"
         conf_d.mkdir(parents=True)
-        
-        result = _parse_caddy_config("test_service", caddy_path)
+
+        result = parse_caddy_config("test_service", caddy_path)
         assert result == []
 
     def test_nonexistent_conf_d(self, tmp_path):
         """Несуществующая директория conf.d возвращает пустой список."""
         caddy_path = tmp_path / "caddy"
-        
-        result = _parse_caddy_config("test_service", caddy_path)
+
+        result = parse_caddy_config("test_service", caddy_path)
         assert result == []
 
     def test_parse_domain_route(self, tmp_path):
@@ -148,13 +160,13 @@ class TestParseCaddyConfig:
         caddy_path = tmp_path / "caddy"
         conf_d = caddy_path / "conf.d"
         conf_d.mkdir(parents=True)
-        
+
         caddy_file = conf_d / "test.caddy"
         caddy_file.write_text("""example.com {
     reverse_proxy http://localhost:8000
 }""")
-        
-        result = _parse_caddy_config("test", caddy_path)
+
+        result = parse_caddy_config("test", caddy_path)
         assert len(result) == 1
         assert result[0]["type"] == "domain"
         assert result[0]["domain"] == "example.com"
@@ -164,15 +176,15 @@ class TestParseCaddyConfig:
         caddy_path = tmp_path / "caddy"
         conf_d = caddy_path / "conf.d"
         conf_d.mkdir(parents=True)
-        
+
         caddy_file = conf_d / "test.caddy"
         caddy_file.write_text("""example.com {
     handle /api/* {
         reverse_proxy http://localhost:8000
     }
 }""")
-        
-        result = _parse_caddy_config("test", caddy_path)
+
+        result = parse_caddy_config("test", caddy_path)
         # Должен быть домен и subfolder
         domains = [r for r in result if r["type"] == "domain"]
         subfolders = [r for r in result if r["type"] == "subfolder"]
@@ -185,13 +197,13 @@ class TestParseCaddyConfig:
         caddy_path = tmp_path / "caddy"
         conf_d = caddy_path / "conf.d"
         conf_d.mkdir(parents=True)
-        
+
         caddy_file = conf_d / "test.caddy"
         caddy_file.write_text("""api.example.com {
     reverse_proxy http://backend-service:8080
 }""")
-        
-        result = _parse_caddy_config("test", caddy_path)
+
+        result = parse_caddy_config("test", caddy_path)
         assert len(result) == 1
         assert result[0].get("backend") == "backend-service:8080"
 
@@ -200,18 +212,134 @@ class TestParseCaddyConfig:
         caddy_path = tmp_path / "caddy"
         conf_d = caddy_path / "conf.d"
         conf_d.mkdir(parents=True)
-        
+
         caddy_file = conf_d / "test.caddy"
         caddy_file.write_text("""import sites/*
 
 example.com {
     reverse_proxy http://localhost:8000
 }""")
-        
-        result = _parse_caddy_config("test", caddy_path)
+
+        result = parse_caddy_config("test", caddy_path)
         # Должен быть только example.com, без import
         domains = [r for r in result if r["domain"] != "{"]
         assert len(domains) >= 1
+
+    def test_backward_compat_wrapper(self, tmp_path):
+        """Проверяем, что старый импорт `_parse_caddy_config` не сломан."""
+        caddy_path = tmp_path / "caddy"
+        conf_d = caddy_path / "conf.d"
+        conf_d.mkdir(parents=True)
+
+        caddy_file = conf_d / "test.caddy"
+        caddy_file.write_text(
+            """example.com {
+    reverse_proxy http://localhost:8000
+}"""
+        )
+
+        result = _parse_caddy_config("test", caddy_path)
+        assert len(result) == 1
+
+
+class TestParseComposePortMapping:
+    """Тесты парсинга порт-маппинга docker-compose с поддержкой IPv6."""
+
+    @pytest.mark.parametrize(
+    "mapping,expected",
+    [
+            ("8080:80", 8080),
+            ("0.0.0.0:8080:80", 8080),
+            ("[::1]:8080:80", 8080),
+            ("[2001:db8::1]:12345:80", 12345),
+            ("8080:80/tcp", 8080),
+            ("::1:8080:80", 8080),
+    ],
+    )
+    def test_parse_supported_formats(self, mapping, expected):
+        assert _parse_compose_port_mapping(mapping) == expected
+
+
+class TestValidateServiceName:
+    def test_accepts_128_chars(self):
+        name = "a" * 128
+        assert validate_service_name(name) == name
+
+    def test_rejects_129_chars(self):
+        name = "a" * 129
+        with pytest.raises(Exit):
+            validate_service_name(name)
+
+
+class TestSslVerifyLogic:
+    def test_production_forces_verify_true(self):
+        with patch.dict(os.environ, {"PLATFORM_ENV": "production", "PLATFORM_SSL_VERIFY": "false"}, clear=False):
+            assert _get_ssl_verify(insecure=False) is True
+
+    def test_production_ignores_insecure_flag(self):
+        with patch.dict(os.environ, {"PLATFORM_ENV": "production"}, clear=False):
+            assert _get_ssl_verify(insecure=True) is True
+
+    def test_non_production_allows_insecure(self):
+        with patch.dict(os.environ, {"PLATFORM_ENV": "development"}, clear=False):
+            assert _get_ssl_verify(insecure=True) is False
+
+
+class TestListAvailabilityIntegration:
+    def test_list_check_insecure_ignored_in_production(self):
+        with patch.dict(os.environ, {"PLATFORM_ENV": "production"}, clear=False):
+            with patch("apps_platform.cli.get_services") as get_services_mock:
+                get_services_mock.return_value = {"demo": {"path": Path("/tmp/demo"), "type": "public"}}
+
+                with patch("apps_platform.cli._get_all_container_statuses") as statuses_mock:
+                    statuses_mock.return_value = {"demo": "Up 10 seconds"}
+
+                    with patch("apps_platform.cli._get_actual_service_urls") as urls_mock:
+                        urls_mock.return_value = ["https://example.com"]
+
+                        with patch("apps_platform.cli.requests.get") as get_mock:
+                            get_mock.return_value.status_code = 200
+
+                            result = runner.invoke(app, ["list", "--check", "--insecure"])
+                            assert result.exit_code == 0
+
+                            _args, kwargs = get_mock.call_args
+                            assert kwargs["verify"] is True
+
+    def test_list_check_insecure_disables_verify_in_dev(self):
+        with patch.dict(os.environ, {"PLATFORM_ENV": "development"}, clear=False):
+            with patch("apps_platform.cli.get_services") as get_services_mock:
+                get_services_mock.return_value = {"demo": {"path": Path("/tmp/demo"), "type": "public"}}
+
+                with patch("apps_platform.cli._get_all_container_statuses") as statuses_mock:
+                    statuses_mock.return_value = {"demo": "Up 10 seconds"}
+
+                    with patch("apps_platform.cli._get_actual_service_urls") as urls_mock:
+                        urls_mock.return_value = ["https://example.com"]
+
+                        with patch("apps_platform.cli.requests.get") as get_mock:
+                            get_mock.return_value.status_code = 200
+
+                            result = runner.invoke(app, ["list", "--check", "--insecure"])
+                            assert result.exit_code == 0
+
+                            _args, kwargs = get_mock.call_args
+                            assert kwargs["verify"] is False
+
+    @pytest.mark.parametrize(
+        "mapping",
+        [
+            "",  # пусто
+            "80",  # только container_port
+            "[::1]",  # не похоже на mapping
+            "bad:format",
+            "127.0.0.1:abc:80",
+            "[::1]:abc:80",
+            "[::1]:8080",  # нет container_port
+        ],
+    )
+    def test_parse_unsupported_formats(self, mapping):
+        assert _parse_compose_port_mapping(mapping) is None
 
 
 if __name__ == "__main__":

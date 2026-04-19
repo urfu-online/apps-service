@@ -238,6 +238,22 @@ install.sh                       # Скрипт установки
 | Templating    | Jinja2                             |
 | Logging       | Docker API (контейнеры); Loki — не реализован |
 
+## 7. Предложения по улучшению архитектуры (roadmap)
+
+### 7.1. Единый источник URL сервисов
+
+Сейчас CLI может извлекать URL сервиса эвристиками из:
+- Caddy `conf.d/*.caddy` (парсинг Caddyfile)
+- `docker-compose.yml` (published ports)
+- `service.yml` (routing)
+
+Предложение: добавить в Master Service API endpoint:
+
+- `GET /api/services/{service_name}/urls`
+
+Он должен возвращать актуальные URL (с учётом окружения/домена/фактической маршрутизации) и тем самым
+снизить дублирование логики в CLI.
+
 ## 7. Масштабируемость и отказоустойчивость
 
 ### Масштабируемость

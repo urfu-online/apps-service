@@ -3,9 +3,11 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from app.core.security import get_current_user
-from app.services.discovery import ServiceManifest, ServiceDiscovery
 
 router = APIRouter()
+
+# TODO(arch): добавить endpoint `GET /api/services/{service_name}/urls`.
+# Цель: единый источник правды по URL сервисов (вместо чтения compose/Caddyfile эвристиками в CLI).
 
 
 class ServiceResponse(BaseModel):

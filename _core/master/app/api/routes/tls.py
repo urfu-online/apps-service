@@ -61,8 +61,6 @@ async def list_allowed_domains():
     Requires authentication.
     """
     from app.main import app
-    from app.core.security import get_current_user
-    from fastapi import Depends
 
     # Ensure user is authenticated
     # Note: This endpoint requires auth unlike /validate

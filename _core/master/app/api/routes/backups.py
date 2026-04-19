@@ -4,8 +4,6 @@ from pydantic import BaseModel
 from datetime import datetime, timezone
 
 from app.core.security import get_current_user
-from app.services.discovery import ServiceManifest
-from app.models.backup import Backup
 
 router = APIRouter()
 
