@@ -44,12 +44,12 @@ environment:
 
 ## Конфигурационные файлы
 
-| Файл | Описание |
-|------|----------|
-| `_core/caddy/Caddyfile` | Глобальные настройки и импорт конфигураций |
-| `_core/caddy/conf.d/*.caddy` | Автоматически генерируемые конфиги сервисов |
-| `_core/caddy/development.caddy` | Конфигурации для локальной разработки |
-| `_core/caddy/templates/` | Jinja2-шаблоны для генерации конфигов |
+| Файл                            | Описание                                    |
+| ------------------------------- | ------------------------------------------- |
+| `_core/caddy/Caddyfile`         | Глобальные настройки и импорт конфигураций  |
+| `_core/caddy/conf.d/*.caddy`    | Автоматически генерируемые конфиги сервисов |
+| `_core/caddy/development.caddy` | Конфигурации для локальной разработки       |
+| `_core/caddy/templates/`        | Jinja2-шаблоны для генерации конфигов       |
 
 ## Автоматические поддомены
 
@@ -82,6 +82,7 @@ class RoutingConfigModel(BaseModel):
 ```
 
 **Логика формирования домена:**
+
 - Если `type: auto_subdomain` → домен = `{service_name}.{base_domain}`
 - Если `type: domain` → домен = `domain` (явно заданный)
 - Если `type: subfolder` → маршрут = `{base_domain}{path}`
@@ -140,11 +141,11 @@ async def validate_tls_domain(domain: str, discovery: ServiceDiscovery):
 
 ## Различия между окружениями
 
-| Параметр | Продакшен (`prod`) | Разработка (`dev`) |
-|----------|-------------------|-------------------|
-| HTTPS | Автоматический SSL | Отключён |
-| Редиректы HTTP→HTTPS | Включены | Нет |
-| Development routes | Нет | Да (localhost, instructor.*) |
+| Параметр             | Продакшен (`prod`) | Разработка (`dev`)            |
+| -------------------- | ------------------ | ----------------------------- |
+| HTTPS                | Автоматический SSL | Отключён                      |
+| Редиректы HTTP→HTTPS | Включены           | Нет                           |
+| Development routes   | Нет                | Да (localhost, instructor.\*) |
 
 ## Управление конфигурацией
 
@@ -178,6 +179,7 @@ docker compose -f _core/caddy/docker-compose.yml exec caddy \
 - Генерация конфигов — через `CaddyManager` в Master Service
 
 ### TODO: Пререквизиты инфраструктуры
+
 - [ ] Настройка DNS: wildcard A-record для `*.{PLATFORM_DOMAIN}` → IP Caddy
 - [ ] Открытие портов 80/443 на внешнем интерфейсе для ACME HTTP-01 challenge
 - [ ] Документирование процесса добавления новых базовых доменов
@@ -200,9 +202,10 @@ health:
 ```
 
 ### TODO: Поведение для базового домена
+
 - [ ] Определить стратегию обработки запросов к `{base_domain}` (без поддомена): отдельный сервис-лендинг, редирект, или 404.
 
 ## См. также
 
 - [Master Service](master-service.md) — основная документация по сервису
-- [Архитектура Caddy](../architecture/caddy.md) — детали интеграции
+- [Архитектура Caddy](../architecture.md#caddy-proxy) — детали интеграции
