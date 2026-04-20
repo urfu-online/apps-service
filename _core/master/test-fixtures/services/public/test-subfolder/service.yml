@@ -1,0 +1,30 @@
+name: test-subfolder
+display_name: Test Subfolder
+version: "1.0.0"
+description: Test service with two subfolder routes
+type: docker-compose
+visibility: public
+routing:
+  - type: subfolder
+    base_domain: apps.example.com
+    path: /test-subfolder
+    internal_port: 80
+    container_name: test-subfolder
+    strip_prefix: true
+  - type: subfolder
+    base_domain: apps.example.com
+    path: /test-subfolder2
+    internal_port: 80
+    container_name: test-subfolder
+    strip_prefix: false
+health:
+  enabled: true
+  endpoint: /health
+  interval: 30s
+  timeout: 10s
+  retries: 3
+backup:
+  enabled: false
+tags:
+  - test
+  - subfolder

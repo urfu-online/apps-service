@@ -26,6 +26,25 @@ def test_fixtures_path():
 
 
 @pytest.fixture
+def temp_services_dir(tmp_path):
+    """Создаёт временную директорию с копиями всех тестовых сервисов.
+    
+    Возвращает путь к временной директории, содержащей поддиректории public/ и internal/
+    с сервисами из test-fixtures/services/. После теста директория автоматически удаляется.
+    """
+    import shutil
+    
+    src = Path(__file__).parent.parent / "test-fixtures" / "services"
+    dst = tmp_path / "services"
+    
+    # Копируем всю структуру
+    shutil.copytree(src, dst)
+    
+    # Возвращаем путь к корню сервисов (где лежат public/ и internal/)
+    return dst
+
+
+@pytest.fixture
 def mock_docker_client():
     """Мокированный Docker клиент."""
     with patch("docker.from_env") as mock_from_env:

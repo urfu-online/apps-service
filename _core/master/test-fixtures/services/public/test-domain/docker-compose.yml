@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  test-domain:
+    image: nginx:alpine
+    container_name: test-domain
+    ports:
+      - "9003:80"
+    networks:
+      - platform_network
+
+networks:
+  platform_network:
+    external: true
+    name: platform_network

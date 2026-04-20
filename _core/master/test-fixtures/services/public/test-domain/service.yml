@@ -1,0 +1,23 @@
+name: test-domain
+display_name: Test Domain
+version: "1.0.0"
+description: Test service with domain routing
+type: docker-compose
+visibility: public
+routing:
+  - type: domain
+    domain: test-domain.example.com
+    internal_port: 80
+    container_name: test-domain
+    strip_prefix: true
+health:
+  enabled: true
+  endpoint: /health
+  interval: 30s
+  timeout: 10s
+  retries: 3
+backup:
+  enabled: false
+tags:
+  - test
+  - domain
