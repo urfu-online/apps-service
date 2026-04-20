@@ -98,6 +98,7 @@ class ServiceDiscovery:
         self.services_path = Path(services_path)
         self.services: Dict[str, ServiceManifest] = {}
         self.observer = Observer()
+        self.loop = asyncio.get_event_loop_policy().get_event_loop()
         self._setup_watcher()
     
     def _setup_watcher(self):
@@ -327,9 +328,11 @@ class ServiceChangeHandler(FileSystemEventHandler):
 
         if _is_service_config_file(event.src_path):
             logger.info(f"Service configuration changed: {event.src_path}")
-            asyncio.create_task(event_bus.emit("service.config.changed", {
-                "path": event.src_path
-            }))
+            # Безопасный вызов async из потока watchdog
+            asyncio.run_coroutine_threadsafe(
+                event_bus.emit("service.config.changed", {"path": event.src_path}),
+                self.discovery.loop
+            )
 
     def on_created(self, event):
         """Обработка создания файла"""
@@ -338,9 +341,11 @@ class ServiceChangeHandler(FileSystemEventHandler):
 
         if _is_service_config_file(event.src_path):
             logger.info(f"New service configuration created: {event.src_path}")
-            asyncio.create_task(event_bus.emit("service.config.created", {
-                "path": event.src_path
-            }))
+            # Безопасный вызов async из потока watchdog
+            asyncio.run_coroutine_threadsafe(
+                event_bus.emit("service.config.created", {"path": event.src_path}),
+                self.discovery.loop
+            )
 
     def on_deleted(self, event):
         """Обработка удаления файла"""
@@ -349,6 +354,8 @@ class ServiceChangeHandler(FileSystemEventHandler):
 
         if _is_service_config_file(event.src_path):
             logger.info(f"Service configuration deleted: {event.src_path}")
-            asyncio.create_task(event_bus.emit("service.config.deleted", {
-                "path": event.src_path
-            }))
+            # Безопасный вызов async из потока watchdog
+            asyncio.run_coroutine_threadsafe(
+                event_bus.emit("service.config.deleted", {"path": event.src_path}),
+                self.discovery.loop
+            )

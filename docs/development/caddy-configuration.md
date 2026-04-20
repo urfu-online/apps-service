@@ -71,19 +71,21 @@ environment:
 
 ```python
 class RoutingConfigModel(BaseModel):
-    type: Literal["auto_subdomain", "domain", "subfolder", "port"]
-    base_domain: str = "apps.urfu.online"  # Используется при type=auto_subdomain
-    domain: Optional[str] = None           # Используется при type=domain
-    path: Optional[str] = None             # Используется при type=subfolder
-    port: Optional[int] = None             # Используется при type=port
-    internal_port: int = 8000              # Порт внутри контейнера
-    container_name: str                    # Имя Docker-контейнера для reverse_proxy
-    strip_prefix: bool = False             # Удалять path-prefix при проксировании
+    type: str  # domain, subfolder, port
+    domain: Optional[str] = None
+    base_domain: Optional[str] = None
+    path: Optional[str] = None
+    port: Optional[int] = None
+    strip_prefix: bool = True
+    internal_port: int = 8000
+    container_name: Optional[str] = None
+    auto_subdomain: bool = False  # Автоматический поддомен {name}.apps.urfu.online
+    auto_subdomain_base: str = "apps.urfu.online"  # Базовый домен для auto_subdomain
 ```
 
 **Логика формирования домена:**
 
-- Если `type: auto_subdomain` → домен = `{service_name}.{base_domain}`
+- Если `auto_subdomain: true` → домен = `{service_name}.{auto_subdomain_base}` (поле `type` игнорируется)
 - Если `type: domain` → домен = `domain` (явно заданный)
 - Если `type: subfolder` → маршрут = `{base_domain}{path}`
 - Если `type: port` → доступ по `:{port}` без домена
