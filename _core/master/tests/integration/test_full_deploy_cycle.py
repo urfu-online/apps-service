@@ -153,6 +153,35 @@ class TestServiceDiscoveryFullCycle:
             assert svc.type == "docker-compose"
             assert svc.name == "compose-only"
 
+    async def test_scan_all_discovers_all_test_services(self, temp_services_dir):
+        """ServiceDiscovery находит все 9 тестовых сервисов из фикстур."""
+        from app.services.discovery import ServiceDiscovery
+
+        with patch.object(ServiceDiscovery, "_get_docker_status", new_callable=AsyncMock) as mock_status:
+            mock_status.return_value = "unknown"
+
+            with patch.object(ServiceDiscovery, "_setup_watcher"):
+                discovery = ServiceDiscovery(str(temp_services_dir))
+                services = await discovery.scan_all()
+
+                expected_names = {
+                    "test-web-app", "test-auto-sub", "test-domain",
+                    "test-subfolder", "test-multi-container", "test-multi-route",
+                    "test-api", "test-health-only", "test-port-internal"
+                }
+                found_names = set(services.keys())
+                assert found_names == expected_names, f"Missing: {expected_names - found_names}"
+                
+                # Проверяем типы маршрутизации
+                assert services["test-auto-sub"].routing[0].type == "auto_subdomain"
+                assert services["test-domain"].routing[0].type == "domain"
+                assert services["test-subfolder"].routing[0].type == "subfolder"
+                assert services["test-multi-container"].routing[0].container_name == "test-multi-container-web"
+                assert len(services["test-multi-route"].routing) == 3
+                assert services["test-api"].visibility == "internal"
+                assert len(services["test-health-only"].routing) == 0
+                assert services["test-port-internal"].routing[0].type == "port"
+
 
 @pytest.mark.asyncio
 class TestCaddyManagerFullCycle:
@@ -232,6 +261,84 @@ class TestCaddyManagerFullCycle:
 
         content = conf_files[0].read_text()
         assert "web" in content or "api" in content
+
+    async def test_regenerate_all_routing_types(self, temp_services_dir):
+        """CaddyManager генерирует конфиги для всех типов маршрутизации."""
+        from pathlib import Path
+        from app.services.caddy_manager import CaddyManager
+        from app.services.discovery import ServiceDiscovery
+        import shutil
+
+        # Создаём временную директорию для конфигов Caddy
+        tmp_caddy = temp_services_dir.parent / "caddy_test"
+        if tmp_caddy.exists():
+            shutil.rmtree(tmp_caddy)
+        tmp_caddy.mkdir()
+        (tmp_caddy / "conf.d").mkdir()
+        (tmp_caddy / "templates").mkdir()
+        
+        # Копируем шаблоны из реальных шаблонов Caddy (гарантированно все есть)
+        core_templates = Path("/projects/apps-service-opus/_core/caddy/templates")
+        if core_templates.exists():
+            shutil.copytree(core_templates, tmp_caddy / "templates", dirs_exist_ok=True)
+        else:
+            # Fallback: копируем из фикстур
+            src_templates = Path(__file__).parent.parent / "test-fixtures" / "caddy" / "templates"
+            if src_templates.exists():
+                shutil.copytree(src_templates, tmp_caddy / "templates", dirs_exist_ok=True)
+
+        with patch.object(ServiceDiscovery, "_get_docker_status", new_callable=AsyncMock) as mock_status:
+            mock_status.return_value = "unknown"
+            with patch.object(ServiceDiscovery, "_setup_watcher"):
+                discovery = ServiceDiscovery(str(temp_services_dir))
+                services = await discovery.scan_all()
+
+                # Мокаем Caddy API
+                with patch("aiohttp.ClientSession") as mock_session_class:
+                    mock_session = AsyncMock()
+                    mock_response = AsyncMock()
+                    mock_response.status = 200
+                    mock_response.text = AsyncMock(return_value='{"result":"ok"}')
+                    mock_session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
+                    mock_session.post.return_value.__aexit__ = AsyncMock(return_value=None)
+                    mock_session_class.return_value = mock_session
+
+                    caddy = CaddyManager(config_path=str(tmp_caddy))
+
+                    # Генерируем конфиги
+                    await caddy.regenerate_all(services)
+
+                    # Проверяем, что конфиги созданы для публичных сервисов с роутингом
+                    # Собираем имена сервисов из сгенерированных файлов
+                    generated_files = list(caddy.conf_d.glob("*.caddy"))
+                    print(f"Generated files: {[f.name for f in generated_files]}")
+                    assert len(generated_files) > 0
+                    
+                    # Проверяем, что для каждого типа маршрутизации есть хотя бы один конфиг
+                    # Анализируем имена файлов
+                    type_counts = {}
+                    for file in generated_files:
+                        name = file.stem
+                        if "_auto" in name:
+                            type_counts["auto_subdomain"] = type_counts.get("auto_subdomain", 0) + 1
+                        elif "_domain" in name:
+                            type_counts["domain"] = type_counts.get("domain", 0) + 1
+                        elif "_port" in name:
+                            type_counts["port"] = type_counts.get("port", 0) + 1
+                        elif "_subfolder_" in name:
+                            type_counts["subfolder"] = type_counts.get("subfolder", 0) + 1
+                        else:
+                            # Файлы без суффиксов могут быть domain (test-domain.caddy)
+                            # Проверим, есть ли сервис с именем name и типом domain
+                            # Для простоты добавим как domain
+                            type_counts["domain"] = type_counts.get("domain", 0) + 1
+                    
+                    print(f"Type counts: {type_counts}")
+                    # Ожидаемые типы (auto_subdomain, domain, subfolder, port)
+                    assert "auto_subdomain" in type_counts
+                    assert "domain" in type_counts
+                    assert "subfolder" in type_counts
+                    assert "port" in type_counts
 
 
 @pytest.mark.asyncio

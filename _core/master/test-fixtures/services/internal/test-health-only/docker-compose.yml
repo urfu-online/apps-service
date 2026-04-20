@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  test-health-only:
+    image: nginx:alpine
+    container_name: test-health-only
+    ports:
+      - "9010:80"
+    networks:
+      - platform_network
+
+networks:
+  platform_network:
+    external: true
+    name: platform_network

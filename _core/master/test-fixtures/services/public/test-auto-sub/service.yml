@@ -1,0 +1,23 @@
+name: test-auto-sub
+display_name: Test Auto Subdomain
+version: "1.0.0"
+description: Test service with auto_subdomain routing
+type: docker-compose
+visibility: public
+routing:
+  - type: auto_subdomain
+    base_domain: apps.example.com
+    internal_port: 80
+    container_name: test-auto-sub
+    strip_prefix: false
+health:
+  enabled: true
+  endpoint: /health
+  interval: 30s
+  timeout: 10s
+  retries: 3
+backup:
+  enabled: false
+tags:
+  - test
+  - auto-subdomain

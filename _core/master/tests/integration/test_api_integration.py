@@ -8,6 +8,7 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from unittest.mock import AsyncMock, patch
 
 
 @pytest_asyncio.fixture
@@ -143,3 +144,109 @@ async def test_user_crud_integration(client):
         db.query(User).filter(User.username.in_(["admin", "testuser", "deletable_user", "updated_admin"])).delete()
         db.commit()
         db.close()
+
+
+@pytest.mark.asyncio
+async def test_services_api_with_routing_types(client, temp_services_dir):
+    """Тестирование API /api/services с разными типами сервисов."""
+    from app.services.discovery import ServiceDiscovery
+    from app.main import app
+    from app.core.security import get_current_user
+    from app.models.user import User
+    
+    # Переопределяем зависимость get_current_user
+    async def mock_get_current_user():
+        return User(username="test", is_superuser=True, id=1)
+    
+    app.dependency_overrides[get_current_user] = mock_get_current_user
+    
+    try:
+        # Мокаем ServiceDiscovery в состоянии приложения
+        with patch.object(ServiceDiscovery, "_get_docker_status", new_callable=AsyncMock) as mock_status:
+            mock_status.return_value = "unknown"
+            with patch.object(ServiceDiscovery, "_setup_watcher"):
+                discovery = ServiceDiscovery(str(temp_services_dir))
+                services = await discovery.scan_all()
+                
+                # Устанавливаем discovery в состояние приложения
+                app.state.discovery = discovery
+                
+                # Проверяем, что discovery установлен
+                assert app.state.discovery is not None
+                assert len(app.state.discovery.services) == 9
+                
+                # Проверяем, что маршрут существует
+                from fastapi.routing import APIRoute
+                all_routes = [route.path for route in app.routes if isinstance(route, APIRoute)]
+                print("Available API routes:", all_routes)
+                routes = [route for route in app.routes if isinstance(route, APIRoute) and (route.path == "/api/services" or route.path == "/api/services/")]
+                assert len(routes) > 0, f"Route /api/services not found in app.routes. Available routes: {all_routes}"
+                
+                # Делаем запрос к /api/services (со слэшем, как в маршруте)
+                response = await client.get("/api/services/")
+                assert response.status_code == 200, f"Expected 200, got {response.status_code}. Response: {response.text}"
+                data = response.json()
+                
+                # Проверяем, что все сервисы присутствуют в ответе
+                service_names = {s["name"] for s in data}
+                expected_names = {
+                    "test-web-app", "test-auto-sub", "test-domain",
+                    "test-subfolder", "test-multi-container", "test-multi-route",
+                    "test-api", "test-health-only", "test-port-internal"
+                }
+                assert service_names == expected_names
+                
+                # Проверяем, что у каждого сервиса есть правильные поля (согласно ServiceResponse)
+                for service in data:
+                    assert "name" in service
+                    assert "display_name" in service
+                    assert "version" in service
+                    assert "visibility" in service
+                    assert "status" in service
+                    assert "type" in service
+                    # Поле routing не возвращается API, поэтому не проверяем
+    finally:
+        # Очищаем переопределения
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_tls_validation_api(client, temp_services_dir):
+    """Тестирование API /api/tls/validate для auto_subdomain."""
+    from app.services.discovery import ServiceDiscovery
+    from app.main import app
+    
+    with patch.object(ServiceDiscovery, "_get_docker_status", new_callable=AsyncMock) as mock_status:
+        mock_status.return_value = "unknown"
+        with patch.object(ServiceDiscovery, "_setup_watcher"):
+            discovery = ServiceDiscovery(str(temp_services_dir))
+            await discovery.scan_all()
+            
+            app.state.discovery = discovery
+            
+            # Проверяем, что маршрут существует
+            from fastapi.routing import APIRoute
+            all_routes = [route.path for route in app.routes if isinstance(route, APIRoute)]
+            print("Available API routes:", all_routes)
+            routes = [route for route in app.routes if isinstance(route, APIRoute) and route.path == "/api/tls/validate"]
+            assert len(routes) > 0, f"Route /api/tls/validate not found in app.routes. Available routes: {all_routes}"
+            
+            # Валидация домена для auto_subdomain сервиса
+            response = await client.get("/api/tls/validate", params={"domain": "test-auto-sub.apps.example.com"})
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}. Response: {response.text}"
+            data = response.json()
+            assert data["status"] == "ok"
+            assert data["service"] == "test-auto-sub"
+            
+            # Валидация домена для domain сервиса
+            response = await client.get("/api/tls/validate", params={"domain": "test-domain.example.com"})
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}. Response: {response.text}"
+            data = response.json()
+            assert data["status"] == "ok"
+            assert data["service"] == "test-domain"
+            
+            # Неизвестный домен должен вернуть 403
+            response = await client.get("/api/tls/validate", params={"domain": "unknown.example.com"})
+            assert response.status_code == 403, f"Expected 403, got {response.status_code}. Response: {response.text}"
+            data = response.json()
+            assert "detail" in data

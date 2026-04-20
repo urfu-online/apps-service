@@ -1,0 +1,19 @@
+name: test-health-only
+display_name: Test Health Only
+version: "1.0.0"
+description: Internal service with health check only, no routing
+type: docker-compose
+visibility: internal
+routing: []
+health:
+  enabled: true
+  endpoint: /health
+  interval: 30s
+  timeout: 10s
+  retries: 3
+backup:
+  enabled: false
+tags:
+  - test
+  - internal
+  - health-only

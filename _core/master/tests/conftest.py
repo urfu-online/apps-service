@@ -26,6 +26,25 @@ def test_fixtures_path():
 
 
 @pytest.fixture
+def temp_services_dir(tmp_path):
+    """Создаёт временную директорию с копиями всех тестовых сервисов.
+    
+    Возвращает путь к временной директории, содержащей поддиректории public/ и internal/
+    с сервисами из test-fixtures/services/. После теста директория автоматически удаляется.
+    """
+    import shutil
+    
+    src = Path(__file__).parent.parent / "test-fixtures" / "services"
+    dst = tmp_path / "services"
+    
+    # Копируем всю структуру
+    shutil.copytree(src, dst)
+    
+    # Возвращаем путь к корню сервисов (где лежат public/ и internal/)
+    return dst
+
+
+@pytest.fixture
 def mock_docker_client():
     """Мокированный Docker клиент."""
     with patch("docker.from_env") as mock_from_env:
@@ -107,9 +126,8 @@ def mock_discovery():
 
     # Create test services
     route1 = RoutingConfigModel(
-        type="domain",
-        auto_subdomain=True,
-        auto_subdomain_base="apps.urfu.online",
+        type="auto_subdomain",
+        base_domain="apps.urfu.online",
         internal_port=8000,
         container_name="test-auto-svc",
     )
@@ -117,7 +135,7 @@ def mock_discovery():
         name="test-auto-svc", display_name="Test Auto Service", routing=[route1]
     )
 
-    route2 = RoutingConfigModel(type="domain", domain="explicit.example.com", auto_subdomain=False)
+    route2 = RoutingConfigModel(type="domain", domain="explicit.example.com")
     service2 = ServiceManifest(
         name="explicit-svc", display_name="Explicit Domain Service", routing=[route2]
     )
@@ -130,8 +148,8 @@ def mock_discovery():
             for route in svc.routing:
                 if route.domain == domain:
                     return (True, svc.name)
-                if route.auto_subdomain:
-                    expected = f"{svc.name}.{route.auto_subdomain_base}"
+                if route.type == "auto_subdomain":
+                    expected = f"{svc.name}.{route.base_domain}"
                     if domain == expected:
                         return (True, svc.name)
         return (False, None)
@@ -145,8 +163,8 @@ def mock_discovery():
             for route in svc.routing:
                 if route.domain:
                     allowed.add(route.domain)
-                if route.auto_subdomain:
-                    allowed.add(f"{svc.name}.{route.auto_subdomain_base}")
+                if route.type == "auto_subdomain":
+                    allowed.add(f"{svc.name}.{route.base_domain}")
         return allowed
 
     discovery.get_allowed_domains = mock_allowed

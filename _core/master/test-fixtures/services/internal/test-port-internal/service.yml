@@ -1,0 +1,23 @@
+name: test-port-internal
+display_name: Test Port Internal
+version: "1.0.0"
+description: Internal service with port routing
+type: docker-compose
+visibility: internal
+routing:
+  - type: port
+    internal_port: 80
+    container_name: test-port-internal
+    strip_prefix: false
+health:
+  enabled: true
+  endpoint: /health
+  interval: 30s
+  timeout: 10s
+  retries: 3
+backup:
+  enabled: false
+tags:
+  - test
+  - internal
+  - port

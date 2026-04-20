@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  test-multi-container-web:
+    image: nginx:alpine
+    container_name: test-multi-container-web
+    ports:
+      - "9007:8080"
+    networks:
+      - platform_network
+    command: ["nginx", "-g", "daemon off;"]
+
+  test-multi-container-api:
+    image: httpd:alpine
+    container_name: test-multi-container-api
+    ports:
+      - "9008:8081"
+    networks:
+      - platform_network
+    command: ["httpd-foreground"]
+
+  test-multi-container-worker:
+    image: busybox:latest
+    container_name: test-multi-container-worker
+    ports:
+      - "9009:8082"
+    networks:
+      - platform_network
+    command: ["sh", "-c", "while true; do echo 'Worker running'; sleep 30; done"]
+
+networks:
+  platform_network:
+    external: true
+    name: platform_network

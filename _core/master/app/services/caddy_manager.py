@@ -62,7 +62,7 @@ class CaddyManager:
         for service in services.values():
             for route in service.routing:
                 # Обработка auto_subdomain
-                if route.auto_subdomain:
+                if route.type == "auto_subdomain":
                     auto_subdomain_services.append((service, route))
                 elif route.type == "domain":
                     domain_services.append((service, route))
@@ -105,7 +105,7 @@ class CaddyManager:
             logger.error(f"Template auto_subdomain.caddy.j2 not found: {e}")
             return
 
-        base_domain = route.auto_subdomain_base
+        base_domain = route.base_domain
         full_domain = f"{service.name}.{base_domain}"
 
         content = template.render(

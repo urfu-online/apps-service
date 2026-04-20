@@ -1,0 +1,34 @@
+name: test-multi-container
+display_name: Test Multi Container
+version: "1.0.0"
+description: Test service with three containers and different routing
+type: docker-compose
+visibility: public
+routing:
+  - type: auto_subdomain
+    base_domain: apps.example.com
+    internal_port: 8080
+    container_name: test-multi-container-web
+    strip_prefix: false
+  - type: domain
+    domain: api-multi.example.com
+    internal_port: 8081
+    container_name: test-multi-container-api
+    strip_prefix: true
+  - type: subfolder
+    base_domain: apps.example.com
+    path: /multi-container
+    internal_port: 8082
+    container_name: test-multi-container-worker
+    strip_prefix: false
+health:
+  enabled: true
+  endpoint: /health
+  interval: 30s
+  timeout: 10s
+  retries: 3
+backup:
+  enabled: false
+tags:
+  - test
+  - multi-container

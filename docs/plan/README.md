@@ -20,3 +20,8 @@
 | ↳ [#29](https://github.com/urfu-online/apps-service/issues/29) | ↳ 11e: Обновить документацию | 🟡 Низкий | ⬜ | |
 | ↳ [#30](https://github.com/urfu-online/apps-service/issues/30) | ↳ 11f: Ограничить legacy-режим | 🟠 Средний | ⬜ | |
 | [#37](https://github.com/urfu-online/apps-service/issues/37) | **Auto-subdomain** — автоматические домены + SSL | 🔴 Критично | ⬜ | [→](12-auto-subdomain.md) |
+| [#46](https://github.com/urfu-online/apps-service/issues/46) | Добавить точные описания команд на примере platform deploy | 🟡 Низкий | ⬜ | |
+| [#47](https://github.com/urfu-online/apps-service/issues/47) | Автоматическая валидация конфигурации и интеграции сервисов (platform validate) | 🟡 Низкий | ⬜ | |
+| [#48](https://github.com/urfu-online/apps-service/issues/48) | add service name index or alias | 🟡 Низкий | ⬜ | |
+| [#49](https://github.com/urfu-online/apps-service/issues/49) | platform list TUI fixes and improvements | 🟡 Низкий | ⬜ | |
+| [#50](https://github.com/urfu-online/apps-service/issues/50) | Привести к общему виду роутинг в service.yml. auto_subdomain: true -> type: auto_subdomain | 🟠 Средний | ⬜ | |
