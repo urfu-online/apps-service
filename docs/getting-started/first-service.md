@@ -35,7 +35,7 @@ visibility: public
 # Автоматический поддомен (стандартное поведение)
 routing:
   - auto_subdomain: true
-    auto_subdomain_base: apps.urfu.online  # базовый домен для поддомена
+    base_domain: apps.urfu.online  # базовый домен для поддомена
     internal_port: 80
     container_name: my-app
 

@@ -58,7 +58,7 @@ visibility: public    # public | internal
 routing:
   # Вариант 1: Автоматический поддомен (по умолчанию)
   - auto_subdomain: true
-    auto_subdomain_base: apps.urfu.online  # базовый домен для поддомена
+    base_domain: apps.urfu.online  # базовый домен для поддомена
     internal_port: 8000
     container_name: my-service  # ⚠️ Обязательно: имя Docker-контейнера
 

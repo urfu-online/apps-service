@@ -496,7 +496,7 @@ def _get_actual_service_urls(service_name: str, service_path: Path, service_conf
 
         # Автоматический поддомен
         if route.get("auto_subdomain", False):
-            base = route.get("auto_subdomain_base", "apps.urfu.online")
+            base = route.get("base_domain", "apps.urfu.online")
             add_url(f"https://{service_name}.{base}")
 
     # 4. Дефолтный URL если ничего не найдено

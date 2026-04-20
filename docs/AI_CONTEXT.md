@@ -63,7 +63,6 @@ routing:                        # Список маршрутов
     container_name: string      # Имя контейнера для прямого проксирования
     strip_prefix: true          # Удалять префикс пути при проксировании
     auto_subdomain: bool        # {name}.base_domain
-    auto_subdomain_base: apps.urfu.online
 health:
   enabled: true
   endpoint: /health             # Путь проверки
