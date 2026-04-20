@@ -1,7 +1,7 @@
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Literal
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from datetime import datetime
 import asyncio
 import aiofiles
@@ -41,7 +41,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 class RoutingConfigModel(BaseModel):
     """Модель конфигурации маршрутизации"""
-    type: str  # domain, subfolder, port
+    type: Literal["domain", "subfolder", "port", "auto_subdomain"]
     domain: Optional[str] = None
     base_domain: Optional[str] = None
     path: Optional[str] = None
@@ -49,8 +49,31 @@ class RoutingConfigModel(BaseModel):
     strip_prefix: bool = True
     internal_port: int = 8000
     container_name: Optional[str] = None  # Имя контейнера для прямого проксирования
-    auto_subdomain: bool = False  # Автоматический поддомен {name}.apps.urfu.online
-    auto_subdomain_base: str = "apps.urfu.online"  # Базовый домен для auto_subdomain
+
+    @validator("base_domain", pre=True, always=True)
+    def set_default_base_domain(cls, v, values):
+        """Устанавливает apps.urfu.online по умолчанию для auto_subdomain, если не задано."""
+        if values.get("type") == "auto_subdomain" and v is None:
+            return "apps.urfu.online"
+        return v
+
+    @validator("type", pre=True)
+    def migrate_auto_subdomain_flag(cls, v, values):
+        """Обратная совместимость: auto_subdomain: true -> type: auto_subdomain."""
+        # Если в данных пришло поле auto_subdomain, игнорируем переданный type
+        if "auto_subdomain" in values and values["auto_subdomain"] is True:
+            return "auto_subdomain"
+        return v
+
+    @validator("base_domain", pre=True)
+    def migrate_auto_subdomain_base(cls, v, values):
+        """Перенос auto_subdomain_base в base_domain."""
+        if "auto_subdomain_base" in values:
+            return values["auto_subdomain_base"]
+        return v
+
+    class Config:
+        extra = "ignore"  # Игнорировать auto_subdomain и auto_subdomain_base при создании
 
 
 class HealthConfigModel(BaseModel):
@@ -244,8 +267,8 @@ class ServiceDiscovery:
                 if route.domain:
                     allowed.add(route.domain)
                 # Автоматический поддомен
-                if route.auto_subdomain:
-                    allowed.add(f"{service.name}.{route.auto_subdomain_base}")
+                if route.type == "auto_subdomain":
+                    allowed.add(f"{service.name}.{route.base_domain}")
         return allowed
 
     def validate_domain(self, domain: str) -> tuple[bool, Optional[str]]:
@@ -260,8 +283,8 @@ class ServiceDiscovery:
             for route in service.routing:
                 if route.domain == domain:
                     return (True, service.name)
-                if route.auto_subdomain:
-                    expected = f"{service.name}.{route.auto_subdomain_base}"
+                if route.type == "auto_subdomain":
+                    expected = f"{service.name}.{route.base_domain}"
                     if domain == expected:
                         return (True, service.name)
         return (False, None)

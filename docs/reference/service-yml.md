@@ -92,16 +92,14 @@ tags:
 
 ```yaml
 routing:
-  - type: string               # обязательное: "domain", "subfolder", "port"
+  - type: string               # обязательное: "domain", "subfolder", "port", "auto_subdomain"
     domain: string             # опционально (для type: domain)
-    base_domain: string        # опционально (для type: subfolder)
+    base_domain: string        # опционально (для type: subfolder, auto_subdomain)
     path: string               # опционально (для type: subfolder)
     port: integer              # опционально (для type: port)
     strip_prefix: boolean      # опционально, по умолчанию true
     internal_port: integer     # опционально, по умолчанию 8000
     container_name: string     # опционально
-    auto_subdomain: boolean    # опционально, по умолчанию false
-    auto_subdomain_base: string # опционально, по умолчанию "apps.urfu.online"
 ```
 
 ### Поля маршрутизации
@@ -111,6 +109,7 @@ routing:
 - `"domain"` — прямое сопоставление домена (например, `app.example.com`).
 - `"subfolder"` — подпапка на базовом домене (например, `apps.example.com/my-app`).
 - `"port"` — проброс порта (редко используется).
+- `"auto_subdomain"` — автоматический поддомен вида `{service-name}.{base_domain}` (например, `myapp.apps.urfu.online`).
 
 #### `domain` (строка, опционально)
 Доменное имя для типа `domain`. Должно быть полным доменным именем (FQDN).
@@ -121,7 +120,7 @@ domain: myapp.example.com
 ```
 
 #### `base_domain` (строка, опционально)
-Базовый домен для типа `subfolder`. Используется вместе с `path`.
+Базовый домен для типов `subfolder` и `auto_subdomain`. Для `subfolder` используется вместе с `path`. Для `auto_subdomain` определяет доменную зону, к которой будет добавлено имя сервиса (например, `apps.urfu.online`). По умолчанию `"apps.urfu.online"` для `auto_subdomain`.
 
 **Пример:**
 ```yaml
@@ -168,21 +167,6 @@ internal_port: 3000
 container_name: my-app-frontend
 ```
 
-#### `auto_subdomain` (логическое, опционально)
-Включить ли автоматическое создание поддомена вида `{name}.{auto_subdomain_base}`. По умолчанию `false`. Если `true`, генерируется домен на основе имени сервиса и базового домена.
-
-**Пример:**
-```yaml
-auto_subdomain: true
-```
-
-#### `auto_subdomain_base` (строка, опционально)
-Базовый домен для автоматического поддомена. По умолчанию `"apps.urfu.online"`.
-
-**Пример:**
-```yaml
-auto_subdomain_base: "apps.example.com"
-```
 
 ### Примеры конфигураций маршрутизации
 
@@ -206,9 +190,8 @@ routing:
 **Автоматический поддомен:**
 ```yaml
 routing:
-  - type: domain
-    auto_subdomain: true
-    auto_subdomain_base: "apps.urfu.online"
+  - type: auto_subdomain
+    base_domain: "apps.urfu.online"
     internal_port: 8080
 ```
 
