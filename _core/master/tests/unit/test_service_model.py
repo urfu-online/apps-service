@@ -137,6 +137,7 @@ def test_routing_type_enum():
     assert RoutingType.DOMAIN == "domain"
     assert RoutingType.SUBFOLDER == "subfolder"
     assert RoutingType.PORT == "port"
+    assert RoutingType.AUTO_SUBDOMAIN == "auto_subdomain"
 
 
 def test_health_config_creation(db_session, sample_health_config):

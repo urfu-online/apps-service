@@ -10,11 +10,17 @@
     import internal_only
     {% endif %}
 
-    tls { on_demand }
+    tls {
+        on_demand
+    }
 
     {% if route.container_name %}
     reverse_proxy http://{{ route.container_name }}:{{ route.internal_port }} {
-x        health_uri {{ service.health.endpoint }}
+    {% else %}
+    reverse_proxy host.docker.internal:{{ route.internal_port }} {
+    {% endif %}
+        {% if service.health.enabled %}
+        health_uri {{ service.health.endpoint }}
         health_interval {{ service.health.interval }}
         {% endif %}
 
@@ -23,7 +29,4 @@ x        health_uri {{ service.health.endpoint }}
         header_up X-Forwarded-Proto {scheme}
         header_up X-Service-Name {{ service.name }}
     }
-    {% else %}
-    respond "500 Internal Error: container_name required" 500
-    {% endif %}
 }

@@ -33,6 +33,7 @@ class RoutingType(str, enum.Enum):
     DOMAIN = "domain"
     SUBFOLDER = "subfolder"
     PORT = "port"
+    AUTO_SUBDOMAIN = "auto_subdomain"
 
 
 class RoutingConfig(BaseModel):
