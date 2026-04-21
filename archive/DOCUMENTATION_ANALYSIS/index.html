@@ -1,0 +1,2315 @@
+
+<!doctype html>
+<html lang="ru" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Управление сервисами на Docker через манифесты">
+      
+      
+      
+        <link rel="canonical" href="https://urfu-online.github.io/apps-service/archive/DOCUMENTATION_ANALYSIS/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Анализ документации Apps Service Opus - apps-service</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#apps-service-opus" class="md-skip">
+          Перейти к содержанию
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Верхний колонтитул">
+    <a href="../.." title="apps-service" class="md-header__button md-logo" aria-label="apps-service" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            apps-service
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Анализ документации Apps Service Opus
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Поиск" placeholder="Поиск" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Поиск">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Поделиться" aria-label="Поделиться" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Очистить" aria-label="Очистить" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Инициализация поиска
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/urfu-online/apps-service" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    urfu-online/apps-service
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Навигация" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="apps-service" class="md-nav__button md-logo" aria-label="apps-service" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    apps-service
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/urfu-online/apps-service" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    urfu-online/apps-service
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Документация
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Начало работы
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Начало работы
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Установка платформы
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Первый сервис
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/cli-ui/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI и UI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Пользователь
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Пользователь
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Руководство по созданию и управлению сервисами
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Бэкапы и восстановление
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../user-guide/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Мониторинг и логирование
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Разработчикам
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Разработчикам
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Документация для разработчиков
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/workflow/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Гайд: работа с задачами
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/master-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Master Service — руководство разработчика
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/testing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Тестирование платформы
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/caddy-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Конфигурация Caddy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/deployment-runbook/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Шпаргалка: обновление платформы на сервере
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/upgrade-to-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Гайд по обновлению на конкретный релиз
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/release-process/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Процесс выпуска релиза
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/guides-wishlist/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Списки гайдов для разработчика
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../AI_CONTEXT/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    AI Context: apps-service-opus
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Справочник
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Справочник
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Архитектура платформы управления сервисами
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Документация API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Примеры манифестов
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../best-practices/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Лучшие практики
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/service-yml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Справочник по service.yml
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../TROUBLESHOOTING/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Устранение неполадок
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../meta/documentation-audit-2026-04/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Аудит документации проекта apps-service-opus (апрель 2026)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Резюме
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Чего не хватает (пропущенные разделы)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Чего не хватает (пропущенные разделы)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 Отсутствующие гайды для разработчиков
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Отсутствующие разделы в пользовательской документации
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 Отсутствующая архитектурная документация
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Что плохо написано (качество документации)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Что плохо написано (качество документации)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Критические ошибки в примерах кода
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.1 Критические ошибки в примерах кода">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#container_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ❌ Проблема: container_name отсутствует в примерах
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docker-composeyml-container_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ❌ Проблема: docker-compose.yml без container_name
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Противоречия между разделами
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Непонятные объяснения
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.3 Непонятные объяснения">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#local-override-servicelocalyml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "Local override" (service.local.yml)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#routing-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "Routing types"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#health-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "Health checks"
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Избыточность и дублирование
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 Неполные инструкции
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2.5 Неполные инструкции">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#platform-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Установка Platform CLI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#keycloak" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Настройка Keycloak
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Что устарело (не соответствует коду)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Что устарело (не соответствует коду)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Устаревшая функциональность
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Устаревшие команды
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Устаревшие пути
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.4 Устаревшие примеры кода
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.4 Устаревшие примеры кода">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#docsapimd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        docs/api.md — аутентификация
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docsexamplesmd-serviceyml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        docs/examples.md — service.yml
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Непоследовательности в структуре
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Непоследовательности в структуре">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Разные уровни детализации
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Несогласованная терминология
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Неполная навигация
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-discoverability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Проблемы с discoverability
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Проблемы с discoverability">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Скрытая информация
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-qwenmd-agentsmd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Важная информация только в QWEN.md / AGENTS.md
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Рекомендуемые приоритеты исправления
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Рекомендуемые приоритеты исправления">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔴 Критично (исправить немедленно)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟠 Высокий приоритет (исправить в ближайший спринт)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟡 Средний приоритет (исправить когда есть время)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🟢 Низкий приоритет (может подождать)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Метрики качества документации
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Приложение: Файлы, требующие исправления
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Приложение: Файлы, требующие исправления">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Немедленно
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        В ближайший спринт
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="apps-service-opus">Анализ документации Apps Service Opus</h1>
+<blockquote>
+<p><strong>Дата анализа:</strong> 2026-04-16
+<strong>Аналитик:</strong> AI-ассистент</p>
+</blockquote>
+<h2 id="_1">Резюме</h2>
+<p>Документация <strong>обширная, но противоречивая</strong>. Многое описывает функциональность, которая не реализована или работает не так, как задумано. Критическая проблема: примеры кода содержат ошибки, которые приведут к неработающей конфигурации.</p>
+<hr />
+<h2 id="1">1. Чего не хватает (пропущенные разделы)</h2>
+<h3 id="11">1.1 Отсутствующие гайды для разработчиков</h3>
+<p>Из <code>docs/development/guides-wishlist.md</code> — следующие гайды не написаны:</p>
+<table>
+<thead>
+<tr>
+<th>Гайд</th>
+<th>Критичность</th>
+<th>Почему нужен</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Локальная разработка — первый запуск</td>
+<td>🔴 Высокая</td>
+<td>Новый разработчик не знает как запустить проект</td>
+</tr>
+<tr>
+<td>Git workflow — ветки, коммиты, PR</td>
+<td>🟠 Средняя</td>
+<td>Непонятно как работать с ветками</td>
+</tr>
+<tr>
+<td>Добавление нового API endpoint</td>
+<td>🔴 Высокая</td>
+<td>Нет руководства по расширению API</td>
+</tr>
+<tr>
+<td>NiceGUI — как добавлять страницы</td>
+<td>🟠 Средняя</td>
+<td>UI разрабатывается вслепую</td>
+</tr>
+<tr>
+<td>Аутентификация — Keycloak vs Builtin</td>
+<td>🔴 Высокая</td>
+<td>Критичный компонент, нет документации</td>
+</tr>
+<tr>
+<td>Caddy шаблоны — как редактировать</td>
+<td>🟠 Средняя</td>
+<td>Любой баг в routing требует правки шаблонов</td>
+</tr>
+<tr>
+<td>Platform CLI — добавление команды</td>
+<td>🟡 Низкая</td>
+<td>Для расширения CLI</td>
+</tr>
+<tr>
+<td>Troubleshooting / FAQ</td>
+<td>🔴 Высокая</td>
+<td>Нет централизованного решения проблем</td>
+</tr>
+</tbody>
+</table>
+<h3 id="12">1.2 Отсутствующие разделы в пользовательской документации</h3>
+<ul>
+<li><strong>Полный reference service.yml</strong> — нет документации всех полей манифеста</li>
+<li><strong>Устранение неполадок (Troubleshooting)</strong> — нет раздела "если не работает..."</li>
+<li><strong>Миграция сервисов</strong> — как перенести сервис с одного сервера на другой</li>
+<li><strong>Удаление сервисов</strong> — как правильно удалить сервис и все его данные</li>
+<li><strong>Настройка Keycloak</strong> — подробная инструкция по интеграции</li>
+<li><strong>Настройка Telegram бота</strong> — пошаговая инструкция</li>
+<li><strong>Работа с секретами</strong> — где и как хранить <code>DATABASE_URL</code>, <code>API_KEY</code></li>
+<li><strong>Ограничения ресурсов</strong> — как настраивать memory/cpu limits в Docker</li>
+</ul>
+<h3 id="13">1.3 Отсутствующая архитектурная документация</h3>
+<ul>
+<li><strong>ER-диаграмма базы данных</strong> — нет схемы SQLite</li>
+<li><strong>Sequence diagrams</strong> — нет диаграмм последовательности для ключевых сценариев</li>
+<li><strong>Описание EventBus</strong> — как работает pub/sub между компонентами</li>
+<li><strong>File watcher</strong> — как работает отслеживание изменений</li>
+</ul>
+<hr />
+<h2 id="2">2. Что плохо написано (качество документации)</h2>
+<h3 id="21">2.1 Критические ошибки в примерах кода</h3>
+<h4 id="container_name">❌ Проблема: <code>container_name</code> отсутствует в примерах</h4>
+<p><strong>Файлы:</strong>
+- <code>docs/examples.md</code> — 6 примеров, только часть имеет <code>container_name</code>
+- <code>docs/getting-started/first-service.md</code> — минимальный пример без <code>container_name</code>
+- <code>docs/user-guide/services.md</code> — примеры без <code>container_name</code>
+- <code>docs/architecture.md</code> — пример манифеста без <code>container_name</code></p>
+<p><strong>Почему это критично:</strong>
+Без <code>container_name</code> Caddy использует <code>host.docker.internal:&lt;port&gt;</code> — проксирование на хост-машину вместо контейнера. Это:
+- Обходит SSL и аутентификацию Caddy
+- Создаёт конфликты портов
+- Является дыркой в безопасности</p>
+<p><strong>Исправление:</strong> ВСЕ примеры должны содержать <code>container_name</code>, совпадающий с именем контейнера в <code>docker-compose.yml</code>.</p>
+<h4 id="docker-composeyml-container_name">❌ Проблема: <code>docker-compose.yml</code> без <code>container_name</code></h4>
+<p>Примеры в документации часто не содержат <code>container_name</code> в <code>docker-compose.yml</code>, но используют его в <code>service.yml</code> — это несоответствие.</p>
+<h3 id="22">2.2 Противоречия между разделами</h3>
+<table>
+<thead>
+<tr>
+<th>Раздел 1</th>
+<th>Утверждение 1</th>
+<th>Раздел 2</th>
+<th>Утверждение 2</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/user-guide/monitoring.md</code></td>
+<td>Loki интегрирован</td>
+<td><code>docs/index.md</code></td>
+<td>Loki — не реализован</td>
+</tr>
+<tr>
+<td><code>docs/user-guide/backup.md</code></td>
+<td>Restic интегрирован</td>
+<td><code>docs/index.md</code></td>
+<td>Restic upload — скрипты не написаны</td>
+</tr>
+<tr>
+<td><code>docs/examples.md</code></td>
+<td><code>type: static</code> поддерживается</td>
+<td><code>docs/index.md</code></td>
+<td>Только <code>type: docker-compose</code> реализован</td>
+</tr>
+<tr>
+<td><code>docs/api.md</code></td>
+<td>Все эндпоинты требуют Bearer токен</td>
+<td><code>docs/api.md</code></td>
+<td>Нет login endpoint для получения токена</td>
+</tr>
+</tbody>
+</table>
+<h3 id="23">2.3 Непонятные объяснения</h3>
+<h4 id="local-override-servicelocalyml">"Local override" (<code>service.local.yml</code>)</h4>
+<ul>
+<li>Нет чёткого объяснения приоритета: что перезаписывает что</li>
+<li>Нет примера "до и после" merge</li>
+<li>Не объяснено, что происходит при конфликтах массивов</li>
+</ul>
+<h4 id="routing-types">"Routing types"</h4>
+<ul>
+<li>Нет схемы/диаграммы показывающей разницу между domain/subfolder/port</li>
+<li>Не объяснено, когда что использовать</li>
+<li>Нет примеров комбинирования типов</li>
+</ul>
+<h4 id="health-checks">"Health checks"</h4>
+<ul>
+<li>Не объяснено, что происходит при failed health check</li>
+<li>Не описан алгоритм retries и backoff</li>
+<li>Нет информации о таймаутах в коде (хотя в манифесте они есть)</li>
+</ul>
+<h3 id="24">2.4 Избыточность и дублирование</h3>
+<table>
+<thead>
+<tr>
+<th>Информация</th>
+<th>Где дублируется</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Установка</td>
+<td><code>README.md</code>, <code>docs/getting-started/install.md</code></td>
+</tr>
+<tr>
+<td>Быстрый старт</td>
+<td><code>README.md</code>, <code>docs/getting-started/first-service.md</code></td>
+</tr>
+<tr>
+<td>Статус компонентов</td>
+<td><code>README.md</code>, <code>docs/index.md</code></td>
+</tr>
+<tr>
+<td>Обновление платформы</td>
+<td><code>docs/development/deployment-runbook.md</code>, <code>docs/development/upgrade-to-release.md</code>, <code>docs/plan/deployment-runbook.md</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="25">2.5 Неполные инструкции</h3>
+<h4 id="platform-cli">Установка Platform CLI</h4>
+<ul>
+<li>В <code>docs/getting-started/cli-ui.md</code> — просто "Python CLI на Typer"</li>
+<li>Нет инструкции по установке pipx</li>
+<li>Нет инструкции по созданию venv</li>
+<li>Нет проверки что CLI работает</li>
+</ul>
+<h4 id="keycloak">Настройка Keycloak</h4>
+<ul>
+<li>Упоминается в нескольких местах</li>
+<li>Нет пошаговой инструкции</li>
+<li>Нет примера конфигурации realm/client</li>
+</ul>
+<hr />
+<h2 id="3">3. Что устарело (не соответствует коду)</h2>
+<h3 id="31">3.1 Устаревшая функциональность</h3>
+<table>
+<thead>
+<tr>
+<th>Документация</th>
+<th>Утверждение</th>
+<th>Реальность</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/architecture.md</code></td>
+<td>Restic интегрирован через скрипты</td>
+<td>Директория <code>scripts/</code> удалена, <code>_upload_to_restic()</code> падает с ошибкой</td>
+</tr>
+<tr>
+<td><code>docs/user-guide/monitoring.md</code></td>
+<td>Loki + Prometheus + Grafana</td>
+<td>Директория <code>_core/monitoring/</code> удалена, только Docker API логи</td>
+</tr>
+<tr>
+<td><code>docs/user-guide/backup.md</code></td>
+<td>Восстановление через UI</td>
+<td>В UI заглушка, API эндпоинты есть но не реализованы</td>
+</tr>
+<tr>
+<td><code>docs/examples.md</code></td>
+<td><code>type: static</code>, <code>type: docker</code>, <code>type: external</code></td>
+<td>Только <code>type: docker-compose</code> реализован</td>
+</tr>
+<tr>
+<td><code>docs/api.md</code></td>
+<td>Поиск по логам через <code>POST /logs/search</code></td>
+<td>LogManager — заглушка, логи читаются напрямую из Docker</td>
+</tr>
+</tbody>
+</table>
+<h3 id="32">3.2 Устаревшие команды</h3>
+<table>
+<thead>
+<tr>
+<th>Документация</th>
+<th>Команда</th>
+<th>Реальность</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/getting-started/cli-ui.md</code></td>
+<td><code>ops list</code></td>
+<td>CLI называется <code>platform</code>, не <code>ops</code> (был переименован)</td>
+</tr>
+<tr>
+<td><code>docs/development/deployment-runbook.md</code></td>
+<td><code>docker-compose</code></td>
+<td>Нужен <code>docker compose</code> (plugin, не standalone)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="33">3.3 Устаревшие пути</h3>
+<table>
+<thead>
+<tr>
+<th>Документация</th>
+<th>Устаревший путь</th>
+<th>Актуальный путь</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/architecture.md</code></td>
+<td><code>apps/_core/master/</code></td>
+<td><code>_core/master/</code></td>
+</tr>
+<tr>
+<td><code>docs/architecture.md</code></td>
+<td><code>apps/services/</code></td>
+<td><code>services/</code></td>
+</tr>
+<tr>
+<td><code>docs/development/upgrade-to-release.md</code></td>
+<td><code>/projects/apps-service-opus</code></td>
+<td>зависит от установки</td>
+</tr>
+</tbody>
+</table>
+<h3 id="34">3.4 Устаревшие примеры кода</h3>
+<h4 id="docsapimd"><code>docs/api.md</code> — аутентификация</h4>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Написано:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="l l-Scalar l-Scalar-Plain">grant_type=password&amp;client_id={client_id}&amp;username={username}&amp;password={password}</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="l l-Scalar l-Scalar-Plain"># Проблема</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">не упомянуто что Keycloak endpoint недоступен если нет realm</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># И не упомянуто что login endpoint в самом API отсутствует</span>
+</span></code></pre></div>
+<h4 id="docsexamplesmd-serviceyml"><code>docs/examples.md</code> — service.yml</h4>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Написано:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nt">logging</span><span class="p">:</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">driver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">loki</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">service</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">level</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="c1"># Проблема: поле logging не обрабатывается кодом</span>
+</span></code></pre></div>
+<hr />
+<h2 id="4">4. Непоследовательности в структуре</h2>
+<h3 id="41">4.1 Разные уровни детализации</h3>
+<table>
+<thead>
+<tr>
+<th>Раздел</th>
+<th>Уровень</th>
+<th>Проблема</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docs/development/release-process.md</code></td>
+<td>Очень детально</td>
+<td>7 разделов, чеклисты, приложения</td>
+</tr>
+<tr>
+<td><code>docs/development/master-service.md</code></td>
+<td>Поверхностно</td>
+<td>Только структура директорий</td>
+</tr>
+<tr>
+<td><code>docs/user-guide/services.md</code></td>
+<td>Детально</td>
+<td>Но с ошибками в примерах</td>
+</tr>
+<tr>
+<td><code>docs/user-guide/backup.md</code></td>
+<td>Детально</td>
+<td>Описывает неработающий функционал</td>
+</tr>
+</tbody>
+</table>
+<h3 id="42">4.2 Несогласованная терминология</h3>
+<table>
+<thead>
+<tr>
+<th>Термин</th>
+<th>Варианты в документации</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CLI</td>
+<td><code>platform</code>, <code>ops</code>, <code>Platform CLI</code></td>
+</tr>
+<tr>
+<td>Манифест</td>
+<td><code>service.yml</code>, <code>манифест</code>, <code>service manifest</code></td>
+</tr>
+<tr>
+<td>Master Service</td>
+<td><code>Master Service</code>, <code>master</code>, <code>platform-master</code></td>
+</tr>
+<tr>
+<td>Internal сервисы</td>
+<td><code>internal</code>, <code>private</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="43">4.3 Неполная навигация</h3>
+<ul>
+<li>Нет единого оглавления со всеми разделами</li>
+<li>В <code>docs/index.md</code> нет ссылок на <code>docs/development/</code></li>
+<li>Нет ссылки на <code>docs/plan/</code> из основной документации</li>
+<li>MkDocs конфигурация не проверена (<code>mkdocs.yml</code> есть, но нет инструкции по сборке)</li>
+</ul>
+<hr />
+<h2 id="5-discoverability">5. Проблемы с discoverability</h2>
+<h3 id="51">5.1 Скрытая информация</h3>
+<table>
+<thead>
+<tr>
+<th>Информация</th>
+<th>Где спрятана</th>
+<th>Должна быть</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Health check интервал 30s</td>
+<td><code>AGENTS.md</code></td>
+<td><code>docs/user-guide/monitoring.md</code></td>
+</tr>
+<tr>
+<td>File watcher через watchdog</td>
+<td><code>AGENTS.md</code></td>
+<td><code>docs/architecture.md</code></td>
+</tr>
+<tr>
+<td>DinD окружение</td>
+<td><code>AGENTS.md</code>, <code>docs/development/testing.md</code></td>
+<td><code>docs/development/index.md</code></td>
+</tr>
+<tr>
+<td>Platform CLI в изолированном venv</td>
+<td><code>AGENTS.md</code></td>
+<td><code>docs/getting-started/cli-ui.md</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="52-qwenmd-agentsmd">5.2 Важная информация только в QWEN.md / AGENTS.md</h3>
+<ul>
+<li>Запрет на <code>gh issue close</code></li>
+<li>Процесс работы с задачами (drafts → подтверждение)</li>
+<li>Ruff категории для линтинга</li>
+<li>Структура test-fixtures</li>
+</ul>
+<hr />
+<h2 id="6">6. Рекомендуемые приоритеты исправления</h2>
+<h3 id="_2">🔴 Критично (исправить немедленно)</h3>
+<ol>
+<li><strong>Добавить <code>container_name</code> во все примеры</strong> — примеры неработоспособны без этого</li>
+<li><strong>Исправить <code>ops</code> → <code>platform</code></strong> везде — устаревшее имя CLI</li>
+<li><strong>Добавить предупреждения о неработающем функционале</strong> — Loki, Restic, static type</li>
+<li><strong>Создать troubleshooting раздел</strong> — с решениями типовых проблем</li>
+</ol>
+<h3 id="_3">🟠 Высокий приоритет (исправить в ближайший спринт)</h3>
+<ol>
+<li><strong>Написать гайд по локальной разработке</strong> — первый запуск проекта</li>
+<li><strong>Написать гайд по аутентификации</strong> — Keycloak vs Builtin</li>
+<li><strong>Создать полный reference service.yml</strong> — все поля с описанием</li>
+<li><strong>Удалить или пометить устаревшие разделы</strong> — Restic, Loki, static type</li>
+<li><strong>Унифицировать терминологию</strong> — словарь терминов</li>
+</ol>
+<h3 id="_4">🟡 Средний приоритет (исправить когда есть время)</h3>
+<ol>
+<li><strong>Создать ER-диаграмму БД</strong></li>
+<li><strong>Написать гайд по добавлению API endpoint</strong></li>
+<li><strong>Написать гайд по NiceGUI</strong></li>
+<li><strong>Создать FAQ</strong></li>
+<li><strong>Удалить дублирование</strong> между файлами</li>
+</ol>
+<h3 id="_5">🟢 Низкий приоритет (может подождать)</h3>
+<ol>
+<li><strong>Sequence diagrams</strong></li>
+<li><strong>Видео-туториалы</strong></li>
+<li><strong>Интерактивные примеры</strong></li>
+</ol>
+<hr />
+<h2 id="7">7. Метрики качества документации</h2>
+<table>
+<thead>
+<tr>
+<th>Метрика</th>
+<th>Оценка</th>
+<th>Комментарий</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Полнота</td>
+<td>⭐⭐⭐☆☆ (3/5)</td>
+<td>Много разделов, но много пробелов</td>
+</tr>
+<tr>
+<td>Актуальность</td>
+<td>⭐⭐☆☆☆ (2/5)</td>
+<td>Много устаревшей информации</td>
+</tr>
+<tr>
+<td>Точность</td>
+<td>⭐⭐☆☆☆ (2/5)</td>
+<td>Примеры содержат ошибки</td>
+</tr>
+<tr>
+<td>Структура</td>
+<td>⭐⭐⭐☆☆ (3/5)</td>
+<td>Есть структура, но несогласованная</td>
+</tr>
+<tr>
+<td>Discoverability</td>
+<td>⭐⭐☆☆☆ (2/5)</td>
+<td>Важная информация спрятана</td>
+</tr>
+<tr>
+<td><strong>Итог</strong></td>
+<td><strong>⭐⭐⭐☆☆ (2.4/5)</strong></td>
+<td><strong>Требует серьёзной работы</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="_6">Приложение: Файлы, требующие исправления</h2>
+<h3 id="_7">Немедленно</h3>
+<ul>
+<li><code>docs/examples.md</code> — добавить <code>container_name</code> в примеры</li>
+<li><code>docs/getting-started/first-service.md</code> — добавить <code>container_name</code></li>
+<li><code>docs/user-guide/services.md</code> — добавить <code>container_name</code>, исправить <code>ops</code> → <code>platform</code></li>
+<li><code>docs/development/deployment-runbook.md</code> — исправить <code>ops</code> → <code>platform</code></li>
+</ul>
+<h3 id="_8">В ближайший спринт</h3>
+<ul>
+<li><code>docs/user-guide/monitoring.md</code> — добавить предупреждение о Loki</li>
+<li><code>docs/user-guide/backup.md</code> — добавить предупреждение о restore</li>
+<li><code>docs/examples.md</code> — добавить предупреждение о static/external types</li>
+<li><code>docs/architecture.md</code> — обновить пути, добавить актуальные диаграммы</li>
+<li><code>docs/api.md</code> — добавить информацию об отсутствии login endpoint</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  К началу
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/urfu-online/apps-service" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.expand", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u0431\u0443\u0444\u0435\u0440", "clipboard.copy": "\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0432 \u0431\u0443\u0444\u0435\u0440", "search.result.more.one": "\u0415\u0449\u0451 1 \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.more.other": "\u0415\u0449\u0451 # \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.none": "\u0421\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e", "search.result.one": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e 1 \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0435", "search.result.other": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439: #", "search.result.placeholder": "\u041d\u0430\u0447\u043d\u0438\u0442\u0435 \u043f\u0435\u0447\u0430\u0442\u0430\u0442\u044c \u0434\u043b\u044f \u043f\u043e\u0438\u0441\u043a\u0430", "search.result.term.missing": "\u041e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442", "select.version": "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0432\u0435\u0440\u0441\u0438\u044e"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
