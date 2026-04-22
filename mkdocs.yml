@@ -57,12 +57,20 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_div_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra_css:
+  - https://cdn.jsdelivr.net/gh/rod2ik/cdn@main/mkdocs/css/massilia-mermaid.css
+
 
 nav:
   - index.md
@@ -77,6 +85,7 @@ nav:
   - Разработчикам:
       - development/index.md
       - development/workflow.md
+      - development/documentation.md
       - development/master-service.md
       - development/testing.md
       - development/caddy-configuration.md
@@ -84,7 +93,6 @@ nav:
       - development/upgrade-to-release.md
       - development/release-process.md
       - development/guides-wishlist.md
-      - AI_CONTEXT.md
   - Справочник:
       - architecture.md
       - api.md
@@ -92,13 +100,21 @@ nav:
       - best-practices.md
       - reference/service-yml.md
       - TROUBLESHOOTING.md
-      - meta/documentation-audit-2026-04.md
 
 plugins:
   - search:
       lang:
         - ru
         - en
+
+  - mermaid2:
+      arguments:
+        theme: 'base'
+        themeVariables:
+          primaryColor: '#2d3436'
+          primaryTextColor: '#ffffff'
+          primaryBorderColor: '#0984e3'
+          lineColor: '#dfe6e9'
 
 extra:
   social:
