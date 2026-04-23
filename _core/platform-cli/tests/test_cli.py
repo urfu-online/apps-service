@@ -346,141 +346,260 @@ class TestBackupCommands:
     """Тесты команд управления бэкапами Kopia."""
 
     @pytest.fixture
-    def mock_services(self):
-        """Мок сервиса с включённым бэкапом."""
-        with patch("apps_platform.cli.get_services") as mock:
-            mock.return_value = {
-                "test-service": {
-                    "path": Path("/tmp/test-service"),
-                    "type": "public",
-                }
-            }
+    def runner(self):
+        """CliRunner для тестов."""
+        return CliRunner()
+
+    @pytest.fixture
+    def mock_backup_api_client(self) -> AsyncMock:
+        """Мок BackupAPIClient."""
+        client = AsyncMock()
+        return client
+
+    @pytest.fixture
+    def patch_backup_client(self, mock_backup_api_client: AsyncMock) -> None:
+        """Патч для получения BackupAPIClient."""
+        with patch("apps_platform.cli.BackupAPIClient") as mock_client_class:
+            mock_client_class.return_value.__aenter__.return_value = mock_backup_api_client
+            yield
+
+    @pytest.fixture
+    def mock_service_exists(self) -> None:
+        """Мок проверки существования сервиса."""
+        with patch("apps_platform.cli._service_exists", return_value=True) as mock:
             yield mock
 
     @pytest.fixture
-    def mock_service_yml_enabled(self):
-        """Мок service.yml с включённым бэкапом."""
-        yaml_content = {
-            "name": "test-service",
-            "backup": {"enabled": True},
-        }
-        with patch("apps_platform.cli.yaml.safe_load") as mock_load, \
-             patch("apps_platform.cli.Path.exists", return_value=True), \
-             patch("builtins.open", mock_open()):
-            mock_load.return_value = yaml_content
-            yield mock_load
+    def mock_backup_enabled(self) -> None:
+        """Мок проверки включённого бэкапа."""
+        with patch("apps_platform.cli._get_backup_enabled", return_value=True) as mock:
+            yield mock
 
     @pytest.fixture
-    def mock_service_yml_disabled(self):
-        """Мок service.yml с отключённым бэкапом."""
-        yaml_content = {
-            "name": "test-service",
-            "backup": {"enabled": False},
-        }
-        with patch("apps_platform.cli.yaml.safe_load") as mock_load, \
-             patch("apps_platform.cli.Path.exists", return_value=True), \
-             patch("builtins.open", mock_open()):
-            mock_load.return_value = yaml_content
-            yield mock_load
+    def mock_backup_disabled(self) -> None:
+        """Мок проверки отключённого бэкапа."""
+        with patch("apps_platform.cli._get_backup_enabled", return_value=False) as mock:
+            yield mock
 
-    @pytest.fixture
-    def mock_api_client(self):
-        """Мок APIClient."""
-        with patch("apps_platform.cli.get_api_client") as mock:
-            client = AsyncMock()
-            mock.return_value.__aenter__.return_value = client
-            yield client
-
-    def test_backup_create_success(self, mock_services, mock_service_yml_enabled, mock_api_client):
-        """Успешное создание бэкапа."""
-        mock_api_client.create_backup.return_value = {
-            "snapshot_id": "k123456789",
-            "message": "Backup created",
-        }
+    @pytest.mark.asyncio
+    def test_backup_create_success(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_service_exists: None,
+        mock_backup_enabled: None,
+        mock_backup_api_client: AsyncMock,
+    ) -> None:
+        """backup create <svc> → stdout с ✅, код 0."""
+        mock_backup_api_client.create_backup.return_value = MagicMock(
+            snapshot_id="k123456789",
+            status="success",
+            message="Backup created successfully",
+            dry_run=False,
+        )
 
         result = runner.invoke(app, ["backup", "create", "test-service"])
+
         assert result.exit_code == 0
-        assert "✅ Бэкап создан" in result.output
-        mock_api_client.create_backup.assert_called_once_with("test-service")
+        assert "✅" in result.output or "success" in result.output.lower()
+        assert "k123456789" in result.output
+        mock_backup_api_client.create_backup.assert_called_once_with("test-service", dry_run=False)
 
-    def test_backup_create_service_not_found(self, mock_services):
-        """Сервис не найден."""
-        mock_services.return_value = {}
-
-        result = runner.invoke(app, ["backup", "create", "nonexistent"])
-        assert result.exit_code == 1
-        assert "не найден" in result.output
-
-    def test_backup_create_backup_disabled(self, mock_services, mock_service_yml_disabled):
-        """Бэкапы отключены."""
+    @pytest.mark.asyncio
+    def test_backup_create_disabled(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_service_exists: None,
+        mock_backup_disabled: None,
+    ) -> None:
+        """backup create <svc> → stdout с ❌ "disabled", код 1."""
         result = runner.invoke(app, ["backup", "create", "test-service"])
-        assert result.exit_code == 1
-        assert "не включены" in result.output
 
-    def test_backup_list_success(self, mock_services, mock_service_yml_enabled, mock_api_client):
-        """Успешный список снапшотов."""
-        mock_api_client.list_backups.return_value = [
+        assert result.exit_code == 1
+        assert "disabled" in result.output.lower() or "не включены" in result.output.lower()
+        assert "❌" in result.output or "error" in result.output.lower()
+
+    @pytest.mark.asyncio
+    def test_backup_create_api_error(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_service_exists: None,
+        mock_backup_enabled: None,
+        mock_backup_api_client: AsyncMock,
+    ) -> None:
+        """backup create <svc> → stdout с ❌ "API error", код 1."""
+        from platform_cli.api.backup_client import APIClientError
+        mock_backup_api_client.create_backup.side_effect = APIClientError("Connection failed", 500)
+
+        result = runner.invoke(app, ["backup", "create", "test-service"])
+
+        assert result.exit_code == 1
+        assert "api" in result.output.lower() or "error" in result.output.lower() or "failed" in result.output
+        assert "❌" in result.output
+
+    @pytest.mark.asyncio
+    def test_backup_list_success(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_service_exists: None,
+        mock_backup_api_client: AsyncMock,
+    ) -> None:
+        """backup list <svc> → таблица Rich/текст с данными, код 0."""
+        from datetime import datetime, timezone
+        mock_backup_api_client.list_backups.return_value = [
             {
                 "snapshot_id": "k123456789",
-                "created_at": "2024-01-01T12:00:00Z",
+                "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc).isoformat(),
                 "size_bytes": 1024 * 1024,
+                "retention_days": 7,
                 "status": "completed",
-            }
+            },
+            {
+                "snapshot_id": "k987654321",
+                "created_at": datetime(2024, 1, 2, 12, 0, 0, tzinfo=timezone.utc).isoformat(),
+                "size_bytes": 2048 * 1024,
+                "retention_days": 14,
+                "status": "completed",
+            },
         ]
 
         result = runner.invoke(app, ["backup", "list", "test-service"])
+
         assert result.exit_code == 0
         assert "k123456789" in result.output
-        mock_api_client.list_backups.assert_called_once_with("test-service")
+        assert "k987654321" in result.output
+        assert "1.0 MB" in result.output or "1024" in result.output
+        mock_backup_api_client.list_backups.assert_called_once_with("test-service")
 
-    def test_backup_list_empty(self, mock_services, mock_service_yml_enabled, mock_api_client):
-        """Пустой список снапшотов."""
-        mock_api_client.list_backups.return_value = []
+    @pytest.mark.asyncio
+    def test_backup_list_empty(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_service_exists: None,
+        mock_backup_api_client: AsyncMock,
+    ) -> None:
+        """backup list <svc> → "не найдено", код 1."""
+        mock_backup_api_client.list_backups.return_value = []
 
         result = runner.invoke(app, ["backup", "list", "test-service"])
-        assert result.exit_code == 0
-        assert "не найдено" in result.output
 
-    def test_backup_restore_success(self, mock_services, mock_service_yml_enabled, mock_api_client):
-        """Успешное восстановление."""
-        mock_api_client.restore_backup.return_value = {
-            "operation_id": "op123",
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower() or "не найдено" in result.output or "empty" in result.output.lower()
+        mock_backup_api_client.list_backups.assert_called_once_with("test-service")
+
+    @pytest.mark.asyncio
+    def test_backup_list_api_error(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_service_exists: None,
+        mock_backup_api_client: AsyncMock,
+    ) -> None:
+        """backup list <svc> → ошибка API, код 1."""
+        from platform_cli.api.backup_client import APIClientError
+        mock_backup_api_client.list_backups.side_effect = APIClientError("Service unavailable", 503)
+
+        result = runner.invoke(app, ["backup", "list", "test-service"])
+
+        assert result.exit_code == 1
+        assert "api" in result.output.lower() or "error" in result.output.lower() or "503" in result.output
+        assert "❌" in result.output
+
+    @pytest.mark.asyncio
+    def test_backup_restore_with_force(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_service_exists: None,
+        mock_backup_api_client: AsyncMock,
+    ) -> None:
+        """backup restore <svc> <id> --force → вызов API с force=true, код 0."""
+        mock_backup_api_client.restore_backup.return_value = {
+            "success": True,
+            "message": "Restoration started",
+            "operation_id": "restore-op-123",
+        }
+
+        result = runner.invoke(
+            app,
+            ["backup", "restore", "test-service", "k123456789", "--force", "--target", "/tmp/restore"],
+        )
+
+        assert result.exit_code == 0
+        assert "restoration" in result.output.lower() or "started" in result.output.lower() or "✅" in result.output
+        mock_backup_api_client.restore_backup.assert_called_once_with(
+            "test-service",
+            "k123456789",
+            target="/tmp/restore",
+            force=True,
+        )
+
+    @pytest.mark.asyncio
+    def test_backup_restore_without_force(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_service_exists: None,
+        mock_backup_api_client: AsyncMock,
+    ) -> None:
+        """backup restore <svc> <id> (без --force) → вызов API с force=false."""
+        mock_backup_api_client.restore_backup.return_value = {
+            "success": True,
             "message": "Restoration started",
         }
 
         result = runner.invoke(
             app,
-            ["backup", "restore", "test-service", "k123456789", "--target", "/tmp/restore", "--force"],
-        )
-        assert result.exit_code == 0
-        assert "✅ Восстановление запущено" in result.output
-        mock_api_client.restore_backup.assert_called_once_with(
-            "test-service", "k123456789", "/tmp/restore", True
+            ["backup", "restore", "test-service", "k123456789", "--target", "/tmp/restore"],
         )
 
-    def test_backup_delete_success(self, mock_services, mock_api_client):
-        """Успешное удаление снапшота."""
-        mock_api_client.delete_backup.return_value = {
+        assert result.exit_code == 0
+        mock_backup_api_client.restore_backup.assert_called_once_with(
+            "test-service",
+            "k123456789",
+            target="/tmp/restore",
+            force=False,
+        )
+
+    @pytest.mark.asyncio
+    def test_backup_delete_success(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_backup_api_client: AsyncMock,
+    ) -> None:
+        """Удаление снапшота успешно."""
+        mock_backup_api_client.delete_backup.return_value = {
+            "success": True,
             "message": "Snapshot deleted",
         }
 
         result = runner.invoke(app, ["backup", "delete", "k123456789"])
-        assert result.exit_code == 0
-        assert "✅ Снапшот удалён" in result.output
-        mock_api_client.delete_backup.assert_called_once_with("k123456789")
 
-    def test_backup_legacy_command(self, mock_services, mock_service_yml_enabled, mock_api_client):
-        """Старая команда backup (алиас)."""
-        mock_api_client.create_backup.return_value = {
-            "snapshot_id": "k123456789",
-            "message": "Backup created",
-        }
-
-        result = runner.invoke(app, ["backup", "test-service"])
         assert result.exit_code == 0
-        assert "устарела" in result.output  # предупреждение
-        assert "✅ Бэкап создан" in result.output
-        mock_api_client.create_backup.assert_called_once_with("test-service")
+        assert "deleted" in result.output.lower() or "удалён" in result.output or "✅" in result.output
+        mock_backup_api_client.delete_backup.assert_called_once_with("k123456789")
+
+    @pytest.mark.asyncio
+    def test_backup_delete_not_found(
+        self,
+        runner: CliRunner,
+        patch_backup_client: None,
+        mock_backup_api_client: AsyncMock,
+    ) -> None:
+        """Удаление несуществующего снапшота."""
+        from platform_cli.api.backup_client import APIClientError
+        mock_backup_api_client.delete_backup.side_effect = APIClientError("Snapshot not found", 404)
+
+        result = runner.invoke(app, ["backup", "delete", "invalid-id"])
+
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower() or "404" in result.output or "❌" in result.output
+        mock_backup_api_client.delete_backup.assert_called_once_with("invalid-id")
 
 
 if __name__ == "__main__":

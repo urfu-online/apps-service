@@ -1,0 +1,1800 @@
+diff --git a/_core/master/Dockerfile b/_core/master/Dockerfile
+index 8f48784..5803c04 100644
+--- a/_core/master/Dockerfile
++++ b/_core/master/Dockerfile
+@@ -15,16 +15,8 @@ WORKDIR /app
+ RUN apt-get update && apt-get install -y \
+     gcc \
+     curl \
+-    rsync \
+     && rm -rf /var/lib/apt/lists/*
+ 
+-# Установка Kopia CLI из GitHub releases
+-RUN KOPIA_VERSION=$(curl -s https://api.github.com/repos/kopia/kopia/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/') && \
+-    curl -L -o /tmp/kopia.deb "https://github.com/kopia/kopia/releases/download/v${KOPIA_VERSION}/kopia_${KOPIA_VERSION}_linux_amd64.deb" && \
+-    dpkg -i /tmp/kopia.deb && \
+-    rm /tmp/kopia.deb && \
+-    kopia --version
+-
+ # Установка Poetry (как root, в /usr/local)
+ RUN pip install --upgrade pip && pip install poetry
+ 
+diff --git a/_core/master/app/api/routes/backups.py b/_core/master/app/api/routes/backups.py
+index 05a8361..8ad006e 100644
+--- a/_core/master/app/api/routes/backups.py
++++ b/_core/master/app/api/routes/backups.py
+@@ -1,5 +1,5 @@
+ from fastapi import APIRouter, Depends, HTTPException
+-from typing import List, Optional, Dict, Any
++from typing import List, Optional
+ from pydantic import BaseModel
+ from datetime import datetime, timezone
+ 
+@@ -8,184 +8,166 @@ from app.core.security import get_current_user
+ router = APIRouter()
+ 
+ 
+-# Pydantic модели для запросов
+-class BackupRequest(BaseModel):
+-    """Запрос на создание бэкапа"""
+-    dry_run: bool = False
+-    reason: str = "manual"
+-
+-
+-class RestoreRequest(BaseModel):
+-    """Запрос на восстановление снапшота"""
+-    target: Optional[str] = None
+-    force: bool = False
++class BackupResponse(BaseModel):
++    id: int
++    service_id: int
++    name: str
++    timestamp: datetime
++    size: Optional[int]
++    status: str
++    reason: str
+ 
+ 
+-class BackupSnapshotResponse(BaseModel):
+-    """Ответ со списком снапшотов"""
+-    snapshot_id: str
+-    service_name: str
+-    status: str
+-    created_at: datetime
+-    size_bytes: Optional[int]
+-    retention_days: int
++class BackupCreateRequest(BaseModel):
++    reason: str = "manual"
+ 
+ 
+-class BackupOperationResponse(BaseModel):
+-    """Ответ на операцию бэкапа/восстановления"""
+-    success: bool
+-    message: str
+-    snapshot_id: Optional[str] = None
+-    dry_run: Optional[bool] = None
+-    target: Optional[str] = None
++class RestoreRequest(BaseModel):
++    backup_id: int
+ 
+ 
+-@router.post("/{svc}/backup", response_model=BackupOperationResponse)
+-async def create_backup(
+-    svc: str,
+-    request: BackupRequest,
++@router.get("/service/{service_name}", response_model=List[BackupResponse])
++async def list_service_backups(
++    service_name: str,
++    skip: int = 0,
++    limit: int = 100,
+     current_user = Depends(get_current_user)
+ ):
+-    """
+-    Запуск бэкапа через KopiaBackupManager с валидацией сервиса и enabled=True
+-    """
++    """Список бэкапов для сервиса"""
+     from app.main import app
+     
+-    # Получаем сервис через discovery
+-    service = app.state.discovery.get_service(svc)
++    service = app.state.discovery.get_service(service_name)
+     if not service:
+         raise HTTPException(status_code=404, detail="Service not found")
+     
+-    # Проверяем, что бэкап включен в конфигурации сервиса
+-    if not service.backup_config or not service.backup_config.enabled:
+-        raise HTTPException(
+-            status_code=400, 
+-            detail=f"Backup disabled for service '{svc}'. Enable it in service configuration."
+-        )
++    # Получаем бэкапы через BackupManager
++    backups = await app.state.backup.list_backups(service)
+     
+-    try:
+-        if request.dry_run:
+-            # Dry-run режим
+-            result = await app.state.backup.dry_run_backup(svc)
+-            if "error" in result:
+-                raise HTTPException(status_code=400, detail=result["error"])
+-            return BackupOperationResponse(
+-                success=True,
+-                message=f"Dry-run backup for service '{svc}'",
+-                snapshot_id="dry-run",
+-                dry_run=True,
+-            )
+-        else:
+-            # Реальный бэкап
+-            backup_record = await app.state.backup.run_backup(svc)
+-            return BackupOperationResponse(
+-                success=True,
+-                message=f"Backup created for service '{svc}'",
+-                snapshot_id=backup_record.path,  # path содержит manifest_id
+-            )
+-    except ValueError as e:
+-        raise HTTPException(status_code=400, detail=str(e))
+-    except RuntimeError as e:
+-        raise HTTPException(status_code=500, detail=str(e))
+-    except Exception as e:
+-        raise HTTPException(status_code=500, detail=f"Backup failed: {str(e)}")
+-
+-
+-@router.get("/{svc}", response_model=List[BackupSnapshotResponse])
+-async def list_backups(
+-    svc: str,
++    # Конвертируем в формат ответа
++    response_backups = []
++    for backup in backups[skip:skip+limit]:
++        response_backups.append(BackupResponse(
++            id=0,  # В упрощенной реализации ID не используется
++            service_id=0,  # В упрощенной реализации ID не используется
++            name=backup.get("backup_name", ""),
++            timestamp=datetime.fromisoformat(backup.get("timestamp", datetime.now(timezone.utc).isoformat())),
++            size=None,  # В упрощенной реализации размер не отслеживается
++            status="completed",  # В упрощенной реализации все бэкапы завершены
++            reason=backup.get("reason", "manual")
++        ))
++    
++    return response_backups
++
++
++@router.post("/service/{service_name}/backup", response_model=BackupResponse)
++async def create_backup(
++    service_name: str,
++    request: BackupCreateRequest,
+     current_user = Depends(get_current_user)
+ ):
+-    """
+-    Список снапшотов из БД (BackupRecord) с сортировкой по created_at
+-    """
++    """Создание бэкапа сервиса"""
+     from app.main import app
+     
+-    # Проверяем существование сервиса
+-    service = app.state.discovery.get_service(svc)
++    service = app.state.discovery.get_service(service_name)
+     if not service:
+         raise HTTPException(status_code=404, detail="Service not found")
+     
+-    try:
+-        # Используем метод list_snapshots из KopiaBackupManager
+-        snapshots = await app.state.backup.list_snapshots(svc)
+-        return [
+-            BackupSnapshotResponse(
+-                snapshot_id=snap["snapshot_id"],
+-                service_name=snap["service_name"],
+-                status=snap["status"],
+-                created_at=snap["created_at"],
+-                size_bytes=snap.get("size_bytes"),
+-                retention_days=snap.get("retention_days", 7),
+-            )
+-            for snap in snapshots
+-        ]
+-    except Exception as e:
+-        raise HTTPException(status_code=500, detail=f"Failed to list snapshots: {str(e)}")
+-
+-
+-@router.post("/{svc}/restore/{snapshot_id}", response_model=BackupOperationResponse)
++    # Создаем бэкап через BackupManager
++    result = await app.state.backup.backup_service(service, reason=request.reason)
++    
++    if not result["success"]:
++        raise HTTPException(status_code=500, detail=result["errors"][0] if result["errors"] else "Backup failed")
++    
++    # Возвращаем информацию о созданном бэкапе
++    return BackupResponse(
++        id=0,
++        service_id=0,
++        name=result["backup_name"],
++        timestamp=datetime.now(timezone.utc),
++        size=None,
++        status="completed",
++        reason=request.reason
++    )
++
++
++@router.post("/service/{service_name}/restore", response_model=dict)
+ async def restore_backup(
+-    svc: str,
+-    snapshot_id: str,
++    service_name: str,
+     request: RestoreRequest,
+     current_user = Depends(get_current_user)
+ ):
+-    """
+-    Восстановление с проверкой существования снапшота и статуса контейнера
+-    """
++    """Восстановление бэкапа сервиса"""
+     from app.main import app
+-    
+-    # Проверяем существование сервиса
+-    service = app.state.discovery.get_service(svc)
++
++    service = app.state.discovery.get_service(service_name)
+     if not service:
+         raise HTTPException(status_code=404, detail="Service not found")
+-    
+-    # Проверяем, что сервис остановлен или force=True
+-    # (можно добавить проверку статуса контейнера через DockerManager)
+-    # Пока просто предупреждаем, если force=False
+-    if not request.force:
+-        # Можно добавить проверку, но пока пропустим
+-        pass
+-    
+-    try:
+-        result = await app.state.backup.restore_snapshot(
+-            svc, snapshot_id, target=request.target, force=request.force
+-        )
+-        return BackupOperationResponse(
+-            success=True,
+-            message=f"Restore completed for service '{svc}'",
+-            snapshot_id=snapshot_id,
+-            target=result.get("target"),
+-        )
+-    except ValueError as e:
+-        raise HTTPException(status_code=404, detail=str(e))
+-    except RuntimeError as e:
+-        raise HTTPException(status_code=500, detail=str(e))
+-    except Exception as e:
+-        raise HTTPException(status_code=500, detail=f"Restore failed: {str(e)}")
+-
+-
+-@router.delete("/snapshot/{snapshot_id}", response_model=BackupOperationResponse)
+-async def delete_snapshot(
+-    snapshot_id: str,
++
++    # Получаем список бэкапов и находим нужный по индексу
++    backups = await app.state.backup.list_backups(service)
++    if request.backup_id < 0 or request.backup_id >= len(backups):
++        raise HTTPException(status_code=404, detail="Backup not found")
++
++    backup_data = backups[request.backup_id]
++    result = await app.state.backup.restore_service(service, backup_data["backup_name"])
++
++    if not result["success"]:
++        raise HTTPException(status_code=500, detail=result.get("message", "Restore failed"))
++
++    return {
++        "message": f"Restore completed for {service_name}",
++        "restored_files": result.get("restored_files", []),
++        "restored_databases": result.get("restored_databases", []),
++        "errors": result.get("errors", [])
++    }
++
++
++@router.delete("/{backup_name}", response_model=dict)
++async def delete_backup(
++    service_name: str,
++    backup_name: str,
+     current_user = Depends(get_current_user)
+ ):
+-    """
+-    Удаление снапшота с проверкой использования в активных задачах
+-    """
++    """Удаление бэкапа"""
+     from app.main import app
+-    
+-    try:
+-        result = await app.state.backup.delete_snapshot(snapshot_id)
+-        return BackupOperationResponse(
+-            success=True,
+-            message=f"Snapshot {snapshot_id} deleted",
+-            snapshot_id=snapshot_id,
+-        )
+-    except ValueError as e:
+-        raise HTTPException(status_code=404, detail=str(e))
+-    except RuntimeError as e:
+-        raise HTTPException(status_code=500, detail=str(e))
+-    except Exception as e:
+-        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
+\ No newline at end of file
++    import shutil
++
++    service = app.state.discovery.get_service(service_name)
++    if not service:
++        raise HTTPException(status_code=404, detail="Service not found")
++
++    backup_path = app.state.backup.backup_base_path / service_name / backup_name
++    if not backup_path.exists():
++        raise HTTPException(status_code=404, detail="Backup not found")
++
++    shutil.rmtree(backup_path)
++    return {"message": f"Backup {backup_name} deleted"}
++
++
++@router.get("/{backup_name}/info", response_model=dict)
++async def get_backup_info(
++    service_name: str,
++    backup_name: str,
++    current_user = Depends(get_current_user)
++):
++    """Получение информации о бэкапе"""
++    from app.main import app
++    import aiofiles
++    import json
++
++    service = app.state.discovery.get_service(service_name)
++    if not service:
++        raise HTTPException(status_code=404, detail="Service not found")
++
++    backup_path = app.state.backup.backup_base_path / service_name / backup_name
++    if not backup_path.exists():
++        raise HTTPException(status_code=404, detail="Backup not found")
++
++    metadata_file = backup_path / "metadata.json"
++    if not metadata_file.exists():
++        raise HTTPException(status_code=404, detail="Backup metadata not found")
++
++    async with aiofiles.open(metadata_file, 'r') as f:
++        metadata = json.loads(await f.read())
++
++    return metadata
+\ No newline at end of file
+diff --git a/_core/master/app/main.py b/_core/master/app/main.py
+index 276d32a..18c9a81 100644
+--- a/_core/master/app/main.py
++++ b/_core/master/app/main.py
+@@ -14,6 +14,7 @@ from app.services.health_checker import HealthChecker
+ from app.services.caddy_manager import CaddyManager
+ from app.services.notifier import TelegramNotifier, AppriseNotifier
+ from app.services.docker_manager import DockerManager
++from app.services.backup_manager import BackupManager
+ from app.services.kopia_backup_manager import KopiaBackupManager
+ from app.services.log_manager import LogManager
+ from app.api.routes import services, deployments, logs, backups, health, users, tls
+@@ -71,42 +72,21 @@ async def startup_tasks(app: FastAPI):
+     app.state.notifier = app.state.telegram_notifier
+     
+     app.state.docker = DockerManager(notifier=app.state.telegram_notifier)
++    app.state.backup = BackupManager(notifier=app.state.telegram_notifier)
+     app.state.log_manager = LogManager()
+ 
+     # Инициализация KopiaBackupManager (асинхронная сессия) с AppriseNotifier
+     from sqlalchemy.ext.asyncio import AsyncSession
+     if AsyncSessionLocal:
+         async_session = AsyncSessionLocal()
+-        app.state.backup = KopiaBackupManager(
++        app.state.kopia_backup = KopiaBackupManager(
+             db=async_session,
+             notifier=app.state.apprise_notifier,  # Используем Apprise для бэкапов
+             dry_run=settings.DRY_RUN_BACKUP if hasattr(settings, 'DRY_RUN_BACKUP') else False
+         )
+-        # Для обратной совместимости оставляем app.state.kopia_backup (можно удалить позже)
+-        app.state.kopia_backup = app.state.backup
+     else:
+         logger.warning("AsyncSessionLocal not configured, KopiaBackupManager will not be available")
+-        app.state.backup = None
+         app.state.kopia_backup = None
+-    
+-    # Проверка legacy таблиц (старый BackupManager)
+-    if AsyncSessionLocal:
+-        try:
+-            from sqlalchemy import inspect, text
+-            from sqlalchemy.ext.asyncio import AsyncSession
+-            async with AsyncSessionLocal() as session:
+-                # Проверяем существование таблиц старого BackupManager
+-                inspector = inspect(session.get_bind())
+-                legacy_tables = ['backups', 'backup_schedules', 'restore_jobs']
+-                existing = [t for t in legacy_tables if inspector.has_table(t)]
+-                if existing:
+-                    logger.warning(
+-                        f"Legacy backup tables detected: {existing}. "
+-                        "These tables are no longer used by KopiaBackupManager. "
+-                        "Consider migrating data or dropping tables."
+-                    )
+-        except Exception as e:
+-            logger.debug(f"Could not check legacy tables: {e}")
+ 
+     # Первоначальная настройка
+     await app.state.discovery.scan_all()
+diff --git a/_core/master/app/services/kopia_backup_manager.py b/_core/master/app/services/kopia_backup_manager.py
+index 771086e..7143446 100644
+--- a/_core/master/app/services/kopia_backup_manager.py
++++ b/_core/master/app/services/kopia_backup_manager.py
+@@ -10,13 +10,13 @@ import tempfile
+ import json
+ from pathlib import Path
+ from datetime import datetime, timezone
+-from typing import Dict, Any, Optional, List, TYPE_CHECKING
++from typing import Dict, Any, Optional, TYPE_CHECKING
+ import re
+ 
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from sqlalchemy import select
+ 
+-from app.models.backup import Backup, BackupRecord
++from app.models.backup import Backup
+ from app.models.service import Service
+ from app.config import settings
+ 
+@@ -33,13 +33,11 @@ class KopiaBackupManager:
+         self,
+         db: AsyncSession,
+         notifier: Any,
+-        dry_run: bool = False,
+-        subprocess_timeout: int = 1800  # 30 минут по умолчанию
++        dry_run: bool = False
+     ):
+         self.db = db
+         self.notifier = notifier
+         self.dry_run = dry_run
+-        self.subprocess_timeout = subprocess_timeout
+         self.scripts_path = Path("/projects/apps-service-opus/_core/backup/scripts")
+         self.kopia_password = os.environ.get("KOPIA_PASSWORD")
+         if not self.kopia_password and not dry_run:
+@@ -340,202 +338,4 @@ class KopiaBackupManager:
+         match = re.search(pattern, output)
+         if match:
+             return int(match.group(1))
+-        return 0
+-
+-    async def list_snapshots(self, service_name: str) -> List[Dict[str, Any]]:
+-        """
+-        Возвращает список снапшотов для сервиса из таблицы backup_records.
+-
+-        Args:
+-            service_name: имя сервиса
+-
+-        Returns:
+-            Список словарей с информацией о снапшотах
+-        """
+-        from sqlalchemy import select
+-        from app.models.backup import BackupRecord
+-        
+-        stmt = select(BackupRecord).where(
+-            BackupRecord.service_name == service_name,
+-            BackupRecord.status != "deleted"
+-        ).order_by(BackupRecord.created_at.desc())
+-        result = await self.db.execute(stmt)
+-        records = result.scalars().all()
+-        
+-        return [
+-            {
+-                "snapshot_id": record.snapshot_id,
+-                "service_name": record.service_name,
+-                "status": record.status,
+-                "created_at": record.created_at,
+-                "size_bytes": record.size_bytes,
+-                "retention_days": record.retention_days,
+-            }
+-            for record in records
+-        ]
+-
+-    async def restore_snapshot(
+-        self,
+-        service_name: str,
+-        snapshot_id: str,
+-        target: Optional[str] = None,
+-        force: bool = False
+-    ) -> Dict[str, Any]:
+-        """
+-        Восстанавливает снапшот Kopia.
+-
+-        Args:
+-            service_name: имя сервиса
+-            snapshot_id: ID манифеста Kopia
+-            target: целевая директория (опционально)
+-            force: игнорировать проверки (опционально)
+-
+-        Returns:
+-            Результат операции
+-        """
+-        from sqlalchemy import select
+-        from app.models.backup import BackupRecord
+-        
+-        # Проверяем существование снапшота
+-        stmt = select(BackupRecord).where(BackupRecord.snapshot_id == snapshot_id)
+-        result = await self.db.execute(stmt)
+-        record = result.scalar_one_or_none()
+-        if not record:
+-            raise ValueError(f"Snapshot {snapshot_id} not found")
+-        
+-        # Проверяем, что сервис существует и backup enabled
+-        stmt = select(Service).where(Service.name == service_name)
+-        result = await self.db.execute(stmt)
+-        service = result.scalar_one_or_none()
+-        if not service:
+-            raise ValueError(f"Service '{service_name}' not found")
+-        
+-        if not service.backup_config or not service.backup_config.enabled:
+-            if not force:
+-                raise ValueError(f"Backup disabled for service '{service_name}'")
+-        
+-        # Определяем целевой путь
+-        if target is None:
+-            # Восстанавливаем в оригинальную директорию сервиса
+-            target = f"/projects/apps-service-opus/services/{service.visibility.value}/{service.name}"
+-        
+-        logger.info(f"Restoring snapshot {snapshot_id} for service '{service_name}' to {target}")
+-        
+-        if self.dry_run:
+-            return {
+-                "success": True,
+-                "dry_run": True,
+-                "message": f"Would restore snapshot {snapshot_id} to {target}",
+-                "snapshot_id": snapshot_id,
+-                "target": target,
+-            }
+-        
+-        # Запускаем скрипт восстановления
+-        script_path = self.scripts_path / "kopia_restore.sh"
+-        if not script_path.exists():
+-            raise FileNotFoundError(f"Script not found: {script_path}")
+-        
+-        env = os.environ.copy()
+-        env["KOPIA_PASSWORD"] = self.kopia_password or ""
+-        env["KOPIA_REPOSITORY_PASSWORD"] = self.kopia_password or ""
+-        
+-        cmd = [
+-            "bash", str(script_path),
+-            "--manifest", snapshot_id,
+-            "--target", target,
+-        ]
+-        if not force:
+-            cmd.append("--no-db")  # По умолчанию не восстанавливаем БД, если не указано force
+-        
+-        process = await asyncio.create_subprocess_exec(
+-            *cmd,
+-            env=env,
+-            stdout=asyncio.subprocess.PIPE,
+-            stderr=asyncio.subprocess.PIPE,
+-        )
+-        stdout, stderr = await process.communicate()
+-        
+-        if process.returncode != 0:
+-            error_msg = stderr.decode().strip()
+-            logger.error(f"Restore failed: {error_msg}")
+-            raise RuntimeError(f"Restore failed: {error_msg}")
+-        
+-        output = stdout.decode()
+-        logger.info(f"Restore completed: {output[:200]}...")
+-        
+-        # Обновляем статус записи (можно добавить поле restored_at)
+-        # record.status = "restored"
+-        # await self.db.commit()
+-        
+-        return {
+-            "success": True,
+-            "snapshot_id": snapshot_id,
+-            "target": target,
+-            "output": output,
+-        }
+-
+-    async def delete_snapshot(self, snapshot_id: str) -> Dict[str, Any]:
+-        """
+-        Удаляет снапшот Kopia и запись из БД.
+-
+-        Args:
+-            snapshot_id: ID манифеста Kopia
+-
+-        Returns:
+-            Результат операции
+-        """
+-        from sqlalchemy import select, delete
+-        from app.models.backup import BackupRecord
+-        
+-        # Проверяем существование снапшота
+-        stmt = select(BackupRecord).where(BackupRecord.snapshot_id == snapshot_id)
+-        result = await self.db.execute(stmt)
+-        record = result.scalar_one_or_none()
+-        if not record:
+-            raise ValueError(f"Snapshot {snapshot_id} not found")
+-        
+-        # Проверяем, не используется ли снапшот в активных задачах
+-        # (здесь можно добавить проверку связей с RestoreJob)
+-        
+-        logger.info(f"Deleting snapshot {snapshot_id}")
+-        
+-        if self.dry_run:
+-            return {
+-                "success": True,
+-                "dry_run": True,
+-                "message": f"Would delete snapshot {snapshot_id}",
+-                "snapshot_id": snapshot_id,
+-            }
+-        
+-        # Удаляем через Kopia CLI
+-        env = os.environ.copy()
+-        env["KOPIA_PASSWORD"] = self.kopia_password or ""
+-        
+-        # Команда kopia snapshot delete
+-        cmd = ["kopia", "snapshot", "delete", snapshot_id, "--delete"]
+-        
+-        process = await asyncio.create_subprocess_exec(
+-            *cmd,
+-            env=env,
+-            stdout=asyncio.subprocess.PIPE,
+-            stderr=asyncio.subprocess.PIPE,
+-        )
+-        stdout, stderr = await process.communicate()
+-        
+-        if process.returncode != 0:
+-            error_msg = stderr.decode().strip()
+-            logger.error(f"Delete failed: {error_msg}")
+-            raise RuntimeError(f"Delete failed: {error_msg}")
+-        
+-        # Удаляем запись из БД
+-        delete_stmt = delete(BackupRecord).where(BackupRecord.snapshot_id == snapshot_id)
+-        await self.db.execute(delete_stmt)
+-        await self.db.commit()
+-        
+-        logger.info(f"Snapshot {snapshot_id} deleted")
+-        
+-        return {
+-            "success": True,
+-            "snapshot_id": snapshot_id,
+-            "message": "Snapshot deleted",
+-        }
+\ No newline at end of file
++        return 0
+\ No newline at end of file
+diff --git a/_core/master/tests/unit/test_backup_endpoints.py b/_core/master/tests/unit/test_backup_endpoints.py
+index 9e36c6e..5079679 100644
+--- a/_core/master/tests/unit/test_backup_endpoints.py
++++ b/_core/master/tests/unit/test_backup_endpoints.py
+@@ -1,288 +1,46 @@
+-"""Тесты для endpoints бэкапов Kopia."""
++"""Тесты для endpoints бэкапов - Pydantic модели."""
+ from datetime import datetime, timezone
+-from unittest.mock import AsyncMock, patch, MagicMock
+-import pytest
+-from fastapi.testclient import TestClient
+-from sqlalchemy.ext.asyncio import AsyncSession
+-
+-from app.main import app
+-from app.models.service import Service
+-from app.models.backup import BackupRecord
+-from app.services.kopia_backup_manager import KopiaBackupManager
+-
+-
+-client = TestClient(app)
+ 
+ 
+ class TestBackupModels:
+-    """Тесты Pydantic моделей для бэкапов Kopia."""
+-
+-    def test_backup_request(self):
+-        """Тест модели BackupRequest."""
+-        from app.api.routes.backups import BackupRequest
++    """Тесты Pydantic моделей для бэкапов."""
++
++    def test_backup_response(self):
++        """Тест модели BackupResponse."""
++        from app.api.routes.backups import BackupResponse
++        
++        response = BackupResponse(
++            id=1,
++            service_id=1,
++            name="backup_20240101",
++            timestamp=datetime.now(timezone.utc),
++            size=1024,
++            status="completed",
++            reason="manual"
++        )
++        
++        assert response.id == 1
++        assert response.name == "backup_20240101"
++        assert response.status == "completed"
++        assert response.reason == "manual"
+ 
+-        request = BackupRequest(dry_run=True, reason="scheduled")
+-        assert request.dry_run is True
++    def test_backup_create_request(self):
++        """Тест модели BackupCreateRequest."""
++        from app.api.routes.backups import BackupCreateRequest
++        
++        request = BackupCreateRequest(reason="scheduled")
+         assert request.reason == "scheduled"
+ 
+-    def test_backup_request_default(self):
+-        """Тест дефолтного значения BackupRequest."""
+-        from app.api.routes.backups import BackupRequest
+-
+-        request = BackupRequest()
+-        assert request.dry_run is False
++    def test_backup_create_request_default(self):
++        """Тест дефолтного значения BackupCreateRequest."""
++        from app.api.routes.backups import BackupCreateRequest
++        
++        request = BackupCreateRequest()
+         assert request.reason == "manual"
+ 
+     def test_restore_request(self):
+         """Тест модели RestoreRequest."""
+         from app.api.routes.backups import RestoreRequest
+-
+-        request = RestoreRequest(target="/tmp/restore", force=True)
+-        assert request.target == "/tmp/restore"
+-        assert request.force is True
+-
+-    def test_backup_snapshot_response(self):
+-        """Тест модели BackupSnapshotResponse."""
+-        from app.api.routes.backups import BackupSnapshotResponse
+-
+-        dt = datetime.now(timezone.utc)
+-        response = BackupSnapshotResponse(
+-            snapshot_id="k123456789",
+-            service_name="test-service",
+-            status="completed",
+-            created_at=dt,
+-            size_bytes=1024 * 1024,
+-            retention_days=7,
+-        )
+-        assert response.snapshot_id == "k123456789"
+-        assert response.service_name == "test-service"
+-        assert response.status == "completed"
+-        assert response.created_at == dt
+-        assert response.size_bytes == 1024 * 1024
+-        assert response.retention_days == 7
+-
+-    def test_backup_operation_response(self):
+-        """Тест модели BackupOperationResponse."""
+-        from app.api.routes.backups import BackupOperationResponse
+-
+-        response = BackupOperationResponse(
+-            success=True,
+-            message="Backup created",
+-            snapshot_id="k123456789",
+-            dry_run=False,
+-            target=None,
+-        )
+-        assert response.success is True
+-        assert response.message == "Backup created"
+-        assert response.snapshot_id == "k123456789"
+-        assert response.dry_run is False
+-        assert response.target is None
+-
+-
+-class TestBackupEndpoints:
+-    """Тесты API endpoints для бэкапов Kopia."""
+-
+-    @pytest.fixture
+-    def mock_service(self):
+-        """Мок сервиса с включённым бэкапом."""
+-        service = MagicMock(spec=Service)
+-        service.name = "test-service"
+-        service.backup_config = MagicMock()
+-        service.backup_config.enabled = True
+-        return service
+-
+-    @pytest.fixture
+-    def mock_backup_manager(self):
+-        """Мок KopiaBackupManager через app.state.backup."""
+-        from app.main import app
+-        with patch.object(app.state, "backup", new=AsyncMock(spec=KopiaBackupManager), create=True) as mock:
+-            yield mock
+-
+-    @pytest.fixture
+-    def mock_discovery(self, mock_service):
+-        """Мок ServiceDiscovery через app.state.discovery."""
+-        from app.main import app
+-        with patch.object(app.state, "discovery", new=MagicMock(), create=True) as mock:
+-            mock.get_service.return_value = mock_service
+-            yield mock
+-
+-    @pytest.fixture
+-    def mock_auth(self):
+-        """Мок аутентификации."""
+-        from unittest.mock import MagicMock, AsyncMock
+-        mock_provider = MagicMock()
+-        mock_provider.get_current_user = AsyncMock(return_value={"username": "testuser"})
+-        with patch("app.core.security.auth_provider", mock_provider):
+-            with patch("app.core.security.get_current_user", AsyncMock(return_value={"username": "testuser"})) as mock:
+-                yield mock
+-
+-    def test_create_backup_success(self, mock_auth, mock_discovery, mock_backup_manager):
+-        """Успешное создание бэкапа."""
+-        mock_backup_manager.run_backup.return_value = MagicMock(
+-            path="k123456789",
+-            status="completed",
+-            size_bytes=1024 * 1024,
+-        )
+-
+-        response = client.post(
+-            "/api/backups/test-service/backup",
+-            json={"dry_run": False, "reason": "manual"},
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 200
+-        data = response.json()
+-        assert data["success"] is True
+-        assert "snapshot_id" in data
+-        mock_backup_manager.run_backup.assert_called_once_with("test-service")
+-        mock_discovery.get_service.assert_called_once_with("test-service")
+-
+-    def test_create_backup_dry_run(self, mock_auth, mock_discovery, mock_backup_manager):
+-        """Dry-run создание бэкапа."""
+-        mock_backup_manager.dry_run_backup.return_value = {
+-            "snapshot_id": "dry-run-123",
+-            "status": "dry_run",
+-            "size_bytes": 0,
+-        }
+-
+-        response = client.post(
+-            "/api/backups/test-service/backup",
+-            json={"dry_run": True, "reason": "manual"},
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 200
+-        data = response.json()
+-        assert data["success"] is True
+-        assert data["dry_run"] is True
+-        mock_backup_manager.dry_run_backup.assert_called_once_with("test-service")
+-        mock_discovery.get_service.assert_called_once_with("test-service")
+-
+-    def test_create_backup_service_not_found(self, mock_auth, mock_discovery):
+-        """Сервис не найден."""
+-        mock_discovery.get_service.return_value = None
+-
+-        response = client.post(
+-            "/api/backups/nonexistent/backup",
+-            json={"dry_run": False},
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 404
+-        data = response.json()
+-        assert "not found" in data["detail"].lower()
+-
+-    def test_create_backup_backup_disabled(self, mock_auth, mock_discovery):
+-        """Бэкапы отключены для сервиса."""
+-        service = MagicMock(spec=Service)
+-        service.name = "test-service"
+-        service.backup_config = MagicMock()
+-        service.backup_config.enabled = False
+-        mock_discovery.get_service.return_value = service
+-
+-        response = client.post(
+-            "/api/backups/test-service/backup",
+-            json={"dry_run": False},
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 400
+-        data = response.json()
+-        assert "backup disabled" in data["detail"].lower()
+-
+-    def test_list_backups_success(self, mock_auth, mock_discovery, mock_backup_manager):
+-        """Успешное получение списка снапшотов."""
+-        mock_backup_manager.list_snapshots.return_value = [
+-            {
+-                "snapshot_id": "k123456789",
+-                "service_name": "test-service",
+-                "status": "completed",
+-                "created_at": datetime.now(timezone.utc),
+-                "size_bytes": 1024 * 1024,
+-                "retention_days": 7,
+-            }
+-        ]
+-
+-        response = client.get(
+-            "/api/backups/test-service",
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 200
+-        data = response.json()
+-        assert isinstance(data, list)
+-        assert len(data) == 1
+-        assert data[0]["snapshot_id"] == "k123456789"
+-        mock_backup_manager.list_snapshots.assert_called_once_with("test-service")
+-        mock_discovery.get_service.assert_called_once_with("test-service")
+-
+-    def test_list_backups_service_not_found(self, mock_auth, mock_discovery):
+-        """Сервис не найден."""
+-        mock_discovery.get_service.return_value = None
+-
+-        response = client.get(
+-            "/api/backups/nonexistent",
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 404
+-        data = response.json()
+-        assert "not found" in data["detail"].lower()
+-
+-    def test_restore_backup_success(self, mock_auth, mock_discovery, mock_backup_manager):
+-        """Успешное восстановление снапшота."""
+-        mock_backup_manager.restore_snapshot.return_value = {
+-            "success": True,
+-            "message": "Restoration started",
+-            "operation_id": "op123",
+-        }
+-
+-        response = client.post(
+-            "/api/backups/test-service/restore/k123456789",
+-            json={"target": "/tmp/restore", "force": True},
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 200
+-        data = response.json()
+-        assert data["success"] is True
+-        assert "Restore completed" in data["message"]
+-        mock_backup_manager.restore_snapshot.assert_called_once_with(
+-            "test-service", "k123456789", target="/tmp/restore", force=True
+-        )
+-        mock_discovery.get_service.assert_called_once_with("test-service")
+-
+-    def test_restore_backup_snapshot_not_found(self, mock_auth, mock_discovery, mock_backup_manager):
+-        """Снапшот не найден."""
+-        mock_backup_manager.restore_snapshot.side_effect = ValueError("Snapshot not found")
+-
+-        response = client.post(
+-            "/api/backups/test-service/restore/invalid-id",
+-            json={},
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 404
+-        data = response.json()
+-        assert "snapshot not found" in data["detail"].lower()
+-        mock_discovery.get_service.assert_called_once_with("test-service")
+-
+-    def test_delete_backup_success(self, mock_auth, mock_backup_manager):
+-        """Успешное удаление снапшота."""
+-        mock_backup_manager.delete_snapshot.return_value = {
+-            "success": True,
+-            "message": "Snapshot deleted",
+-        }
+-
+-        response = client.delete(
+-            "/api/backups/snapshot/k123456789",
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 200
+-        data = response.json()
+-        assert data["success"] is True
+-        mock_backup_manager.delete_snapshot.assert_called_once_with("k123456789")
+-
+-    def test_delete_backup_snapshot_not_found(self, mock_auth, mock_backup_manager):
+-        """Снапшот не найден."""
+-        mock_backup_manager.delete_snapshot.side_effect = ValueError("Snapshot not found")
+-
+-        response = client.delete(
+-            "/api/backups/snapshot/invalid-id",
+-            headers={"Authorization": "Bearer testtoken"},
+-        )
+-        assert response.status_code == 404
+-        data = response.json()
+-        assert "snapshot not found" in data["detail"].lower()
++        
++        request = RestoreRequest(backup_id=1)
++        assert request.backup_id == 1
+diff --git a/_core/platform-cli/apps_platform/api_client.py b/_core/platform-cli/apps_platform/api_client.py
+deleted file mode 100644
+index 0f7e7af..0000000
+--- a/_core/platform-cli/apps_platform/api_client.py
++++ /dev/null
+@@ -1,245 +0,0 @@
+-"""
+-Асинхронный HTTP клиент для взаимодействия с Platform Master Service API.
+-Поддерживает Bearer token аутентификацию, retry логику и обработку ошибок.
+-"""
+-
+-import asyncio
+-import logging
+-import os
+-from typing import Any, Dict, List, Optional
+-
+-import aiohttp
+-from aiohttp import ClientSession, ClientTimeout
+-from tenacity import (
+-    retry,
+-    retry_if_exception_type,
+-    stop_after_attempt,
+-    wait_exponential,
+-    retry_error_callback,
+-    RetryError,
+-)
+-
+-logger = logging.getLogger(__name__)
+-
+-# Константы
+-DEFAULT_TIMEOUT = 30
+-MAX_RETRIES = 3
+-RETRY_WAIT_MIN = 1
+-RETRY_WAIT_MAX = 10
+-
+-
+-def _retry_error_callback(retry_state):
+-    """
+-    Callback для преобразования RetryError в APIClientError.
+-    """
+-    # retry_state.outcome содержит результат последней попытки (исключение)
+-    if retry_state.outcome is None:
+-        raise APIClientError("Unknown error after retries")
+-    exception = retry_state.outcome.exception()
+-    if exception is None:
+-        raise APIClientError("Unknown error after retries")
+-    # Если исключение уже APIClientError, просто поднимаем его
+-    if isinstance(exception, APIClientError):
+-        raise exception
+-    # Преобразуем в APIClientError с сообщением исходного исключения
+-    raise APIClientError(f"{type(exception).__name__}: {exception}") from exception
+-
+-
+-class APIClientError(Exception):
+-    """Базовое исключение для ошибок API клиента."""
+-
+-    pass
+-
+-
+-class APIClient:
+-    """HTTP клиент для Platform Master Service API."""
+-
+-    def __init__(
+-        self,
+-        base_url: str,
+-        token: Optional[str] = None,
+-        timeout: int = DEFAULT_TIMEOUT,
+-        verify_ssl: bool = True,
+-    ) -> None:
+-        """
+-        Инициализация клиента.
+-
+-        Args:
+-            base_url: Базовый URL API (например, http://localhost:8001)
+-            token: Bearer token для аутентификации (опционально)
+-            timeout: Таймаут запроса в секундах
+-            verify_ssl: Проверять SSL сертификаты
+-        """
+-        self.base_url = base_url.rstrip("/")
+-        self.token = token
+-        self.timeout = ClientTimeout(total=timeout)
+-        self.verify_ssl = verify_ssl
+-        self._session: Optional[ClientSession] = None
+-
+-    async def __aenter__(self) -> "APIClient":
+-        await self.start()
+-        return self
+-
+-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+-        await self.close()
+-
+-    async def start(self) -> None:
+-        """Создание сессии aiohttp."""
+-        if self._session is None or self._session.closed:
+-            headers = {"User-Agent": "Platform-CLI/1.0"}
+-            if self.token:
+-                headers["Authorization"] = f"Bearer {self.token}"
+-            self._session = ClientSession(
+-                headers=headers,
+-                timeout=self.timeout,
+-                connector=aiohttp.TCPConnector(ssl=self.verify_ssl),
+-            )
+-
+-    async def close(self) -> None:
+-        """Закрытие сессии aiohttp."""
+-        if self._session and not self._session.closed:
+-            await self._session.close()
+-            self._session = None
+-
+-    @retry(
+-        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
+-        stop=stop_after_attempt(MAX_RETRIES),
+-        wait=wait_exponential(min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
+-        retry_error_callback=lambda retry_state: _retry_error_callback(retry_state),
+-    )
+-    async def _request(
+-        self,
+-        method: str,
+-        endpoint: str,
+-        json: Optional[Dict[str, Any]] = None,
+-        params: Optional[Dict[str, Any]] = None,
+-    ) -> Dict[str, Any]:
+-        """Выполнение HTTP запроса с retry логикой."""
+-        if self._session is None or self._session.closed:
+-            await self.start()
+-
+-        url = f"{self.base_url}{endpoint}"
+-        logger.debug(f"API request: {method} {url}")
+-
+-        try:
+-            async with self._session.request(
+-                method=method,
+-                url=url,
+-                json=json,
+-                params=params,
+-                ssl=None if self.verify_ssl else False,
+-            ) as response:
+-                response.raise_for_status()
+-                content_type = response.headers.get("Content-Type", "")
+-                if "application/json" in content_type:
+-                    return await response.json()
+-                else:
+-                    text = await response.text()
+-                    return {"text": text}
+-        except aiohttp.ClientResponseError as e:
+-            logger.error(f"API error {e.status}: {e.message}")
+-            raise APIClientError(f"API error {e.status}: {e.message}") from e
+-
+-    async def post(self, endpoint: str, json: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+-        """POST запрос."""
+-        return await self._request("POST", endpoint, json=json)
+-
+-    async def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+-        """GET запрос."""
+-        return await self._request("GET", endpoint, params=params)
+-
+-    async def delete(self, endpoint: str) -> Dict[str, Any]:
+-        """DELETE запрос."""
+-        return await self._request("DELETE", endpoint)
+-
+-    # Специфичные методы для backup API
+-
+-    async def create_backup(self, service_name: str) -> Dict[str, Any]:
+-        """
+-        Создать бэкап сервиса.
+-
+-        Args:
+-            service_name: Имя сервиса
+-
+-        Returns:
+-            Ответ API с результатом операции
+-        """
+-        endpoint = f"/api/backups/{service_name}/backup"
+-        return await self.post(endpoint)
+-
+-    async def list_backups(self, service_name: str) -> List[Dict[str, Any]]:
+-        """
+-        Получить список снапшотов сервиса.
+-
+-        Args:
+-            service_name: Имя сервиса
+-
+-        Returns:
+-            Список снапшотов
+-        """
+-        endpoint = f"/api/backups/{service_name}"
+-        response = await self.get(endpoint)
+-        # API возвращает список объектов BackupSnapshotResponse
+-        return response if isinstance(response, list) else []
+-
+-    async def restore_backup(
+-        self,
+-        service_name: str,
+-        snapshot_id: str,
+-        target: Optional[str] = None,
+-        force: bool = False,
+-    ) -> Dict[str, Any]:
+-        """
+-        Восстановить снапшот сервиса.
+-
+-        Args:
+-            service_name: Имя сервиса
+-            snapshot_id: ID снапшота
+-            target: Целевой путь (опционально)
+-            force: Принудительное восстановление (опционально)
+-
+-        Returns:
+-            Ответ API с результатом операции
+-        """
+-        endpoint = f"/api/backups/{service_name}/restore/{snapshot_id}"
+-        json = {}
+-        if target is not None:
+-            json["target"] = target
+-        if force:
+-            json["force"] = force
+-        return await self.post(endpoint, json=json)
+-
+-    async def delete_backup(self, snapshot_id: str) -> Dict[str, Any]:
+-        """
+-        Удалить снапшот.
+-
+-        Args:
+-            snapshot_id: ID снапшота
+-
+-        Returns:
+-            Ответ API с результатом операции
+-        """
+-        endpoint = f"/api/backups/snapshot/{snapshot_id}"
+-        return await self.delete(endpoint)
+-
+-
+-def get_api_client() -> APIClient:
+-    """
+-    Создание экземпляра APIClient на основе конфигурации.
+-
+-    Returns:
+-        Настроенный экземпляр APIClient
+-    """
+-    from .cli import get_config, _get_ssl_verify
+-
+-    config = get_config()
+-    master_url = config.get("master_url", "http://localhost:8001")
+-    token = os.getenv("PLATFORM_API_TOKEN")
+-    insecure = os.getenv("PLATFORM_INSECURE", "").lower() == "true"
+-    verify_ssl = _get_ssl_verify(insecure=insecure)
+-
+-    return APIClient(
+-        base_url=master_url,
+-        token=token,
+-        verify_ssl=verify_ssl,
+-    )
+\ No newline at end of file
+diff --git a/_core/platform-cli/apps_platform/cli.py b/_core/platform-cli/apps_platform/cli.py
+index 9b566ee..f52cf27 100644
+--- a/_core/platform-cli/apps_platform/cli.py
++++ b/_core/platform-cli/apps_platform/cli.py
+@@ -2,7 +2,6 @@
+ CLI утилита для управления платформой Platform Master Service
+ """
+ 
+-import asyncio
+ import json
+ import logging
+ import os
+@@ -12,7 +11,7 @@ from collections.abc import Iterator
+ from contextlib import contextmanager
+ from functools import lru_cache
+ from pathlib import Path
+-from typing import Any, Optional
++from typing import Any
+ 
+ import docker
+ import requests
+@@ -21,7 +20,6 @@ import yaml
+ from rich.console import Console
+ from rich.table import Table
+ 
+-from apps_platform.api_client import APIClient, get_api_client
+ from apps_platform.caddy_parser import parse_caddy_config
+ 
+ app = typer.Typer(
+@@ -883,26 +881,10 @@ def logs(
+     compose_cmd(service_path, *args)
+ 
+ 
+-# Группа команд для управления бэкапами Kopia
+-backup_app = typer.Typer(name="backup", help="Управление бэкапами Kopia")
+-app.add_typer(backup_app)
+-
+-
+-@backup_app.callback(invoke_without_command=True)
+-def backup_callback(
+-    ctx: typer.Context,
+-    service: str = typer.Argument(..., help="Имя сервиса (устаревший синтаксис)"),
+-):
+-    """Создать бэкап сервиса (устаревший синтаксис)."""
+-    if ctx.invoked_subcommand is None:
+-        console.print("[yellow]⚠️  Команда 'platform backup' устарела, используйте 'platform backup create'[/yellow]")
+-        asyncio.run(_backup_create_async(service))
+-
+-
+-async def _ensure_backup_enabled(service_name: str) -> None:
+-    """Проверка, что бэкапы включены в service.yml."""
+-    services = get_services()
+-    service_path = get_service_or_fail(services, service_name)
++@app.command()
++def backup(service: str = typer.Argument(..., help="Имя сервиса")) -> None:
++    """Создать бэкап сервиса."""
++    service_path = get_service_or_fail(get_services(), service)
+     service_yml_path = service_path / "service.yml"
+ 
+     if not service_yml_path.exists():
+@@ -917,124 +899,24 @@ async def _ensure_backup_enabled(service_name: str) -> None:
+         console.print("[yellow]⚠️  Бэкапы не включены в service.yml[/yellow]")
+         raise typer.Exit(1)
+ 
+-
+-@backup_app.command("create")
+-def backup_create(
+-    service: str = typer.Argument(..., help="Имя сервиса"),
+-) -> None:
+-    """Создать бэкап сервиса (Kopia)."""
+-    asyncio.run(_backup_create_async(service))
+-
+-
+-async def _backup_create_async(service_name: str) -> None:
+-    """Асинхронная реализация создания бэкапа."""
+-    await _ensure_backup_enabled(service_name)
+-
+-    try:
+-        async with get_api_client() as client:
+-            result = await client.create_backup(service_name)
+-            console.print(f"[green]✅ Бэкап создан: {result.get('snapshot_id', 'N/A')}[/green]")
+-            if "message" in result:
+-                console.print(f"[blue]ℹ️  {result['message']}[/blue]")
+-    except Exception as e:
+-        console.print(f"[red]❌ Ошибка: {e}[/red]")
+-        raise typer.Exit(1) from e
+-
+-
+-@backup_app.command("list")
+-def backup_list(
+-    service: str = typer.Argument(..., help="Имя сервиса"),
+-) -> None:
+-    """Показать список снапшотов сервиса."""
+-    asyncio.run(_backup_list_async(service))
+-
+-
+-async def _backup_list_async(service_name: str) -> None:
+-    """Асинхронная реализация списка снапшотов."""
+-    await _ensure_backup_enabled(service_name)
+-
+-    try:
+-        async with get_api_client() as client:
+-            snapshots = await client.list_backups(service_name)
+-            if not snapshots:
+-                console.print("[yellow]⚠️  Снапшотов не найдено[/yellow]")
+-                return
+-
+-            table = Table(title=f"Снапшоты сервиса {service_name}")
+-            table.add_column("ID", style="cyan")
+-            table.add_column("Создан", style="magenta")
+-            table.add_column("Размер", style="blue")
+-            table.add_column("Статус", style="yellow")
+-
+-            for snap in snapshots:
+-                snapshot_id = snap.get("snapshot_id", "N/A")
+-                created_at = snap.get("created_at", "N/A")
+-                size_bytes = snap.get("size_bytes", 0)
+-                status = snap.get("status", "unknown")
+-
+-                # Форматирование размера
+-                if size_bytes >= 1024 ** 3:
+-                    size_str = f"{size_bytes / (1024 ** 3):.2f} GB"
+-                elif size_bytes >= 1024 ** 2:
+-                    size_str = f"{size_bytes / (1024 ** 2):.2f} MB"
+-                elif size_bytes >= 1024:
+-                    size_str = f"{size_bytes / 1024:.2f} KB"
+-                else:
+-                    size_str = f"{size_bytes} B"
+-
+-                table.add_row(snapshot_id, created_at, size_str, status)
+-
+-            console.print(table)
+-    except Exception as e:
+-        console.print(f"[red]❌ Ошибка: {e}[/red]")
+-        raise typer.Exit(1) from e
+-
+-
+-@backup_app.command("restore")
+-def backup_restore(
+-    service: str = typer.Argument(..., help="Имя сервиса"),
+-    snapshot_id: str = typer.Argument(..., help="ID снапшота"),
+-    target: str = typer.Option(None, "--target", "-t", help="Целевой путь (опционально)"),
+-    force: bool = typer.Option(False, "--force", "-f", help="Принудительное восстановление"),
+-) -> None:
+-    """Восстановить снапшот сервиса."""
+-    asyncio.run(_backup_restore_async(service, snapshot_id, target, force))
+-
+-
+-async def _backup_restore_async(
+-    service_name: str,
+-    snapshot_id: str,
+-    target: Optional[str],
+-    force: bool,
+-) -> None:
+-    """Асинхронная реализация восстановления."""
+-    await _ensure_backup_enabled(service_name)
++    config = get_config()
++    master_url = config.get("master_url", "http://localhost:8001")
+ 
+     try:
+-        async with get_api_client() as client:
+-            result = await client.restore_backup(service_name, snapshot_id, target, force)
+-            console.print(f"[green]✅ Восстановление запущено: {result.get('operation_id', 'N/A')}[/green]")
+-            if "message" in result:
+-                console.print(f"[blue]ℹ️  {result['message']}[/blue]")
+-    except Exception as e:
+-        console.print(f"[red]❌ Ошибка: {e}[/red]")
++        response = requests.post(
++            f"{master_url}/api/backups/service/{service}/backup",
++            json={"reason": "manual"},
++            timeout=REQUEST_TIMEOUT,
++        )
++        if response.status_code == 200:
++            result = response.json()
++            console.print(f"[green]✅ Бэкап создан: {result.get('name', 'N/A')}[/green]")
++        else:
++            console.print(f"[red]❌ API вернул статус {response.status_code}[/red]")
++            raise typer.Exit(1)
++    except requests.exceptions.ConnectionError as e:
++        console.print("[red]❌ Master Service недоступен. Запустите бэкап вручную через restic.[/red]")
+         raise typer.Exit(1) from e
+-
+-
+-@backup_app.command("delete")
+-def backup_delete(
+-    snapshot_id: str = typer.Argument(..., help="ID снапшота"),
+-) -> None:
+-    """Удалить снапшот."""
+-    asyncio.run(_backup_delete_async(snapshot_id))
+-
+-
+-async def _backup_delete_async(snapshot_id: str) -> None:
+-    """Асинхронная реализация удаления снапшота."""
+-    try:
+-        async with get_api_client() as client:
+-            result = await client.delete_backup(snapshot_id)
+-            console.print(f"[green]✅ Снапшот удалён: {result.get('message', 'Успешно')}[/green]")
+     except Exception as e:
+         console.print(f"[red]❌ Ошибка: {e}[/red]")
+         raise typer.Exit(1) from e
+diff --git a/_core/platform-cli/tests/test_api_client.py b/_core/platform-cli/tests/test_api_client.py
+deleted file mode 100644
+index 63751ce..0000000
+--- a/_core/platform-cli/tests/test_api_client.py
++++ /dev/null
+@@ -1,205 +0,0 @@
+-"""Тесты для API клиента."""
+-import asyncio
+-from unittest.mock import AsyncMock, patch, MagicMock
+-import pytest
+-import aiohttp
+-
+-from apps_platform.api_client import APIClient, APIClientError
+-
+-
+-class TestAPIClient:
+-    """Тесты APIClient."""
+-
+-    @pytest.fixture
+-    def client(self):
+-        """Экземпляр APIClient для тестов."""
+-        return APIClient(base_url="http://localhost:8001", token="test-token")
+-
+-    @pytest.mark.asyncio
+-    async def test_start_and_close(self, client):
+-        """Создание и закрытие сессии."""
+-        await client.start()
+-        assert client._session is not None
+-        assert not client._session.closed
+-        await client.close()
+-        assert client._session is None
+-
+-    @pytest.mark.asyncio
+-    async def test_context_manager(self):
+-        """Использование контекстного менеджера."""
+-        async with APIClient(base_url="http://localhost:8001") as client:
+-            assert client._session is not None
+-            assert not client._session.closed
+-        assert client._session is None
+-
+-    @pytest.mark.asyncio
+-    async def test_request_success(self, client):
+-        """Успешный HTTP запрос."""
+-        mock_response = AsyncMock()
+-        mock_response.status = 200
+-        mock_response.headers = MagicMock()
+-        mock_response.headers.get.return_value = "application/json"
+-        mock_response.json.return_value = {"success": True}
+-        mock_response.text.return_value = '{"success": true}'
+-        # Настраиваем асинхронный контекстный менеджер
+-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+-        mock_response.__aexit__ = AsyncMock(return_value=None)
+-
+-        with patch("aiohttp.ClientSession.request", return_value=mock_response):
+-            await client.start()
+-            result = await client._request("GET", "/test")
+-            assert result == {"success": True}
+-
+-    @pytest.mark.asyncio
+-    async def test_request_text_response(self, client):
+-        """Ответ с текстовым содержимым."""
+-        mock_response = AsyncMock()
+-        mock_response.status = 200
+-        mock_response.headers = MagicMock()
+-        mock_response.headers.get.return_value = "text/plain"
+-        mock_response.text.return_value = "OK"
+-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+-        mock_response.__aexit__ = AsyncMock(return_value=None)
+-
+-        with patch("aiohttp.ClientSession.request", return_value=mock_response):
+-            await client.start()
+-            result = await client._request("GET", "/test")
+-            assert result == {"text": "OK"}
+-
+-    @pytest.mark.asyncio
+-    async def test_request_client_error(self, client):
+-        """Ошибка клиента (4xx)."""
+-        mock_response = AsyncMock()
+-        mock_response.status = 404
+-        mock_response.headers = MagicMock()
+-        mock_response.headers.get.return_value = "application/json"
+-        mock_response.json.return_value = {"detail": "Not found"}
+-        # raise_for_status должен быть MagicMock, потому что это синхронный метод
+-        mock_response.raise_for_status = MagicMock(
+-            side_effect=aiohttp.ClientResponseError(
+-                request_info=MagicMock(),
+-                history=(),
+-                status=404,
+-                message="Not found",
+-            )
+-        )
+-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+-        mock_response.__aexit__ = AsyncMock(return_value=None)
+-
+-        with patch("aiohttp.ClientSession.request", return_value=mock_response):
+-            await client.start()
+-            with pytest.raises(APIClientError, match="API error 404"):
+-                await client._request("GET", "/test")
+-
+-    @pytest.mark.asyncio
+-    async def test_request_network_error(self, client):
+-        """Сетевая ошибка."""
+-        with patch("aiohttp.ClientSession.request", side_effect=aiohttp.ClientError("Network error")):
+-            await client.start()
+-            with pytest.raises(APIClientError, match="Network error"):
+-                await client._request("GET", "/test")
+-
+-    @pytest.mark.asyncio
+-    async def test_request_timeout(self, client):
+-        """Таймаут запроса."""
+-        with patch("aiohttp.ClientSession.request", side_effect=asyncio.TimeoutError("Timeout")):
+-            await client.start()
+-            with pytest.raises(APIClientError, match="Request timeout"):
+-                await client._request("GET", "/test")
+-
+-    @pytest.mark.asyncio
+-    async def test_post(self, client):
+-        """POST запрос."""
+-        with patch.object(client, "_request", return_value={"id": 1}) as mock_request:
+-            result = await client.post("/test", json={"key": "value"})
+-            mock_request.assert_called_once_with("POST", "/test", json={"key": "value"})
+-            assert result == {"id": 1}
+-
+-    @pytest.mark.asyncio
+-    async def test_get(self, client):
+-        """GET запрос."""
+-        with patch.object(client, "_request", return_value={"data": "test"}) as mock_request:
+-            result = await client.get("/test", params={"page": 1})
+-            mock_request.assert_called_once_with("GET", "/test", params={"page": 1})
+-            assert result == {"data": "test"}
+-
+-    @pytest.mark.asyncio
+-    async def test_delete(self, client):
+-        """DELETE запрос."""
+-        with patch.object(client, "_request", return_value={"deleted": True}) as mock_request:
+-            result = await client.delete("/test")
+-            mock_request.assert_called_once_with("DELETE", "/test")
+-            assert result == {"deleted": True}
+-
+-    @pytest.mark.asyncio
+-    async def test_create_backup(self, client):
+-        """Создание бэкапа."""
+-        with patch.object(client, "post", return_value={"snapshot_id": "k123"}) as mock_post:
+-            result = await client.create_backup("test-service")
+-            mock_post.assert_called_once_with("/api/backups/test-service/backup")
+-            assert result == {"snapshot_id": "k123"}
+-
+-    @pytest.mark.asyncio
+-    async def test_list_backups(self, client):
+-        """Список снапшотов."""
+-        with patch.object(client, "get", return_value=[{"id": "k123"}]) as mock_get:
+-            result = await client.list_backups("test-service")
+-            mock_get.assert_called_once_with("/api/backups/test-service")
+-            assert result == [{"id": "k123"}]
+-
+-    @pytest.mark.asyncio
+-    async def test_restore_backup(self, client):
+-        """Восстановление снапшота."""
+-        with patch.object(client, "post", return_value={"operation_id": "op123"}) as mock_post:
+-            result = await client.restore_backup("test-service", "k123", target="/tmp", force=True)
+-            mock_post.assert_called_once_with(
+-                "/api/backups/test-service/restore/k123",
+-                json={"target": "/tmp", "force": True},
+-            )
+-            assert result == {"operation_id": "op123"}
+-
+-    @pytest.mark.asyncio
+-    async def test_delete_backup(self, client):
+-        """Удаление снапшота."""
+-        with patch.object(client, "delete", return_value={"message": "deleted"}) as mock_delete:
+-            result = await client.delete_backup("k123")
+-            mock_delete.assert_called_once_with("/api/backups/snapshot/k123")
+-            assert result == {"message": "deleted"}
+-
+-    @pytest.mark.asyncio
+-    async def test_retry_logic(self, client):
+-        """Проверка retry логики при сетевых ошибках."""
+-        # Создаём мок ответа для успешного запроса
+-        mock_response = AsyncMock()
+-        mock_response.status = 200
+-        mock_response.headers = MagicMock()
+-        mock_response.headers.get.return_value = "application/json"
+-        mock_response.json.return_value = {"success": True}
+-        mock_response.text.return_value = '{"success": true}'
+-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+-        mock_response.__aexit__ = AsyncMock(return_value=None)
+-        # side_effect: два раза исключение, затем успешный ответ
+-        side_effect = [
+-            aiohttp.ClientError("Network error"),
+-            aiohttp.ClientError("Network error"),
+-            mock_response,
+-        ]
+-        with patch("aiohttp.ClientSession.request", side_effect=side_effect):
+-            await client.start()
+-            result = await client._request("GET", "/test")
+-            assert result == {"success": True}
+-            # Проверяем, что было 3 вызова (два исключения, один успех)
+-            assert client._session.request.call_count == 3
+-
+-    def test_get_api_client(self):
+-        """Создание клиента через get_api_client."""
+-        with patch("apps_platform.api_client.get_config") as mock_get_config, \
+-             patch("apps_platform.api_client._get_ssl_verify") as mock_ssl_verify:
+-            mock_get_config.return_value = {"master_url": "http://master:8001"}
+-            mock_ssl_verify.return_value = True
+-
+-            from apps_platform.api_client import get_api_client
+-            client = get_api_client()
+-            assert client.base_url == "http://master:8001"
+-            assert client.token is None
+-            assert client.verify_ssl is True
+\ No newline at end of file
+diff --git a/_core/platform-cli/tests/test_cli.py b/_core/platform-cli/tests/test_cli.py
+index fab5258..9b63f4d 100644
+--- a/_core/platform-cli/tests/test_cli.py
++++ b/_core/platform-cli/tests/test_cli.py
+@@ -3,7 +3,7 @@
+ """
+ import os
+ from pathlib import Path
+-from unittest.mock import patch, AsyncMock, MagicMock, mock_open
++from unittest.mock import patch
+ 
+ import pytest
+ from click.exceptions import Exit
+@@ -342,146 +342,5 @@ class TestListAvailabilityIntegration:
+         assert _parse_compose_port_mapping(mapping) is None
+ 
+ 
+-class TestBackupCommands:
+-    """Тесты команд управления бэкапами Kopia."""
+-
+-    @pytest.fixture
+-    def mock_services(self):
+-        """Мок сервиса с включённым бэкапом."""
+-        with patch("apps_platform.cli.get_services") as mock:
+-            mock.return_value = {
+-                "test-service": {
+-                    "path": Path("/tmp/test-service"),
+-                    "type": "public",
+-                }
+-            }
+-            yield mock
+-
+-    @pytest.fixture
+-    def mock_service_yml_enabled(self):
+-        """Мок service.yml с включённым бэкапом."""
+-        yaml_content = {
+-            "name": "test-service",
+-            "backup": {"enabled": True},
+-        }
+-        with patch("apps_platform.cli.yaml.safe_load") as mock_load, \
+-             patch("apps_platform.cli.Path.exists", return_value=True), \
+-             patch("builtins.open", mock_open()):
+-            mock_load.return_value = yaml_content
+-            yield mock_load
+-
+-    @pytest.fixture
+-    def mock_service_yml_disabled(self):
+-        """Мок service.yml с отключённым бэкапом."""
+-        yaml_content = {
+-            "name": "test-service",
+-            "backup": {"enabled": False},
+-        }
+-        with patch("apps_platform.cli.yaml.safe_load") as mock_load, \
+-             patch("apps_platform.cli.Path.exists", return_value=True), \
+-             patch("builtins.open", mock_open()):
+-            mock_load.return_value = yaml_content
+-            yield mock_load
+-
+-    @pytest.fixture
+-    def mock_api_client(self):
+-        """Мок APIClient."""
+-        with patch("apps_platform.cli.get_api_client") as mock:
+-            client = AsyncMock()
+-            mock.return_value.__aenter__.return_value = client
+-            yield client
+-
+-    def test_backup_create_success(self, mock_services, mock_service_yml_enabled, mock_api_client):
+-        """Успешное создание бэкапа."""
+-        mock_api_client.create_backup.return_value = {
+-            "snapshot_id": "k123456789",
+-            "message": "Backup created",
+-        }
+-
+-        result = runner.invoke(app, ["backup", "create", "test-service"])
+-        assert result.exit_code == 0
+-        assert "✅ Бэкап создан" in result.output
+-        mock_api_client.create_backup.assert_called_once_with("test-service")
+-
+-    def test_backup_create_service_not_found(self, mock_services):
+-        """Сервис не найден."""
+-        mock_services.return_value = {}
+-
+-        result = runner.invoke(app, ["backup", "create", "nonexistent"])
+-        assert result.exit_code == 1
+-        assert "не найден" in result.output
+-
+-    def test_backup_create_backup_disabled(self, mock_services, mock_service_yml_disabled):
+-        """Бэкапы отключены."""
+-        result = runner.invoke(app, ["backup", "create", "test-service"])
+-        assert result.exit_code == 1
+-        assert "не включены" in result.output
+-
+-    def test_backup_list_success(self, mock_services, mock_service_yml_enabled, mock_api_client):
+-        """Успешный список снапшотов."""
+-        mock_api_client.list_backups.return_value = [
+-            {
+-                "snapshot_id": "k123456789",
+-                "created_at": "2024-01-01T12:00:00Z",
+-                "size_bytes": 1024 * 1024,
+-                "status": "completed",
+-            }
+-        ]
+-
+-        result = runner.invoke(app, ["backup", "list", "test-service"])
+-        assert result.exit_code == 0
+-        assert "k123456789" in result.output
+-        mock_api_client.list_backups.assert_called_once_with("test-service")
+-
+-    def test_backup_list_empty(self, mock_services, mock_service_yml_enabled, mock_api_client):
+-        """Пустой список снапшотов."""
+-        mock_api_client.list_backups.return_value = []
+-
+-        result = runner.invoke(app, ["backup", "list", "test-service"])
+-        assert result.exit_code == 0
+-        assert "не найдено" in result.output
+-
+-    def test_backup_restore_success(self, mock_services, mock_service_yml_enabled, mock_api_client):
+-        """Успешное восстановление."""
+-        mock_api_client.restore_backup.return_value = {
+-            "operation_id": "op123",
+-            "message": "Restoration started",
+-        }
+-
+-        result = runner.invoke(
+-            app,
+-            ["backup", "restore", "test-service", "k123456789", "--target", "/tmp/restore", "--force"],
+-        )
+-        assert result.exit_code == 0
+-        assert "✅ Восстановление запущено" in result.output
+-        mock_api_client.restore_backup.assert_called_once_with(
+-            "test-service", "k123456789", "/tmp/restore", True
+-        )
+-
+-    def test_backup_delete_success(self, mock_services, mock_api_client):
+-        """Успешное удаление снапшота."""
+-        mock_api_client.delete_backup.return_value = {
+-            "message": "Snapshot deleted",
+-        }
+-
+-        result = runner.invoke(app, ["backup", "delete", "k123456789"])
+-        assert result.exit_code == 0
+-        assert "✅ Снапшот удалён" in result.output
+-        mock_api_client.delete_backup.assert_called_once_with("k123456789")
+-
+-    def test_backup_legacy_command(self, mock_services, mock_service_yml_enabled, mock_api_client):
+-        """Старая команда backup (алиас)."""
+-        mock_api_client.create_backup.return_value = {
+-            "snapshot_id": "k123456789",
+-            "message": "Backup created",
+-        }
+-
+-        result = runner.invoke(app, ["backup", "test-service"])
+-        assert result.exit_code == 0
+-        assert "устарела" in result.output  # предупреждение
+-        assert "✅ Бэкап создан" in result.output
+-        mock_api_client.create_backup.assert_called_once_with("test-service")
+-
+-
+ if __name__ == "__main__":
+     pytest.main([__file__, "-v"])
