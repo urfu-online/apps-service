@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, BigInteger
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -59,3 +59,18 @@ class RestoreJob(BaseModel):
     
     def __repr__(self):
         return f"<RestoreJob(backup_id={self.backup_id}, status='{self.status}')>"
+
+
+class BackupRecord(BaseModel):
+    """Запись о резервной копии Kopia."""
+    __tablename__ = "backup_records"
+    
+    service_name = Column(String(255), nullable=False, index=True)  # Имя сервиса
+    snapshot_id = Column(String(255), unique=True, nullable=False)  # ID манифеста Kopia
+    status = Column(String(50), default="created")  # Статус: created, uploaded, failed, deleted
+    created_at = Column(DateTime, default=datetime.utcnow)  # Время создания записи
+    size_bytes = Column(BigInteger, nullable=True)  # Размер в байтах
+    retention_days = Column(Integer, default=7)  # Дней хранения
+    
+    def __repr__(self):
+        return f"<BackupRecord(service_name='{self.service_name}', snapshot_id='{self.snapshot_id}', status='{self.status}')>"

@@ -59,6 +59,12 @@ class Settings(BaseSettings):
         None, description="Пароль для репозитория Restic"
     )
 
+    # Apprise notification URLs (for backup notifications)
+    NOTIFY_URLS: List[str] = Field(
+        [],
+        description="Список URL для отправки уведомлений через Apprise (например, telegram://, mailto://)"
+    )
+
     # Platform domain (used for Caddy routing)
     PLATFORM_DOMAIN: str = Field(
         "localhost",

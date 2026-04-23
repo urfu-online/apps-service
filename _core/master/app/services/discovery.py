@@ -12,6 +12,7 @@ from watchdog.events import FileSystemEventHandler
 from app.models.service import Service
 from app.core.database import db_manager
 from app.core.events import event_bus
+from app.services.backup_models import BackupConfig
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
@@ -85,15 +86,6 @@ class HealthConfigModel(BaseModel):
     retries: int = 3
 
 
-class BackupConfigModel(BaseModel):
-    """Модель конфигурации бэкапов"""
-    enabled: bool = False
-    schedule: str = "0 2 * * *"
-    retention: int = 7
-    paths: list[str] = []
-    databases: list[dict] = []
-
-
 class ServiceManifest(BaseModel):
     """Модель манифеста сервиса"""
     name: str
@@ -104,7 +96,7 @@ class ServiceManifest(BaseModel):
     visibility: str = "internal"
     routing: list[RoutingConfigModel] = []
     health: HealthConfigModel = HealthConfigModel()
-    backup: BackupConfigModel = BackupConfigModel()
+    backup: BackupConfig = BackupConfig()
     tags: list[str] = []
     
     # Runtime info
@@ -112,6 +104,39 @@ class ServiceManifest(BaseModel):
     status: str = "unknown"
     last_deployed: Optional[datetime] = None
     container_ids: list[str] = []
+    
+    @validator("backup", pre=True)
+    def migrate_backup_config(cls, v, values):
+        """Мигрирует старый формат backup конфигурации к новому."""
+        if v is None:
+            return v
+        if isinstance(v, dict):
+            # Логируем предупреждение, если обнаружены старые поля
+            old_fields = {"retention", "paths", "databases"}
+            if any(field in v for field in old_fields):
+                logger.warning(
+                    "Обнаружен старый формат backup конфигурации. "
+                    "Используются значения по умолчанию нового формата. "
+                    "Пожалуйста, обновите service.yml в соответствии с документацией."
+                )
+                # Игнорируем старые поля, передаем только те, что соответствуют новой схеме
+                # Преобразуем retention -> retention_days
+                if "retention" in v:
+                    v["retention_days"] = v.pop("retention")
+                # Преобразуем databases list[dict] -> list[str] (если возможно)
+                if "databases" in v and isinstance(v["databases"], list):
+                    # Попробуем преобразовать каждый dict в строку подключения
+                    new_dbs = []
+                    for db in v["databases"]:
+                        if isinstance(db, dict) and "url" in db:
+                            new_dbs.append(db["url"])
+                        elif isinstance(db, str):
+                            new_dbs.append(db)
+                        else:
+                            # Пропускаем некорректные записи
+                            continue
+                    v["databases"] = new_dbs
+        return v
 
 
 class ServiceDiscovery:

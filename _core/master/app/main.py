@@ -3,19 +3,23 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from nicegui import ui
 import asyncio
+import logging
 
 from app.config import settings
 from app.core.security import KeycloakAuthProvider, BuiltInAuthProvider, set_auth_provider
+from app.core.database import get_async_db, AsyncSessionLocal
+from app.core.events import backup_scheduler
 from app.services import ServiceDiscovery
 from app.services.health_checker import HealthChecker
 from app.services.caddy_manager import CaddyManager
-from app.services.notifier import TelegramNotifier
+from app.services.notifier import TelegramNotifier, AppriseNotifier
 from app.services.docker_manager import DockerManager
-from app.services.backup_manager import BackupManager
+from app.services.kopia_backup_manager import KopiaBackupManager
 from app.services.log_manager import LogManager
 from app.api.routes import services, deployments, logs, backups, health, users, tls
 from app.ui.theme import apply_theme
-import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────
@@ -55,13 +59,54 @@ async def startup_tasks(app: FastAPI):
     app.state.discovery = ServiceDiscovery(settings.SERVICES_PATH)
     app.state.health_checker = HealthChecker()
     app.state.caddy = CaddyManager(settings.CADDY_CONFIG_PATH)
-    app.state.notifier = TelegramNotifier(
+    
+    # Два отдельных notifier: Telegram для общих уведомлений, Apprise для бэкапов
+    app.state.telegram_notifier = TelegramNotifier(
         bot_token=settings.TELEGRAM_BOT_TOKEN,
         chat_ids=settings.TELEGRAM_CHAT_IDS
     )
-    app.state.docker = DockerManager(notifier=app.state.notifier)
-    app.state.backup = BackupManager(notifier=app.state.notifier)
+    app.state.apprise_notifier = AppriseNotifier(urls=settings.NOTIFY_URLS)
+    
+    # Для обратной совместимости оставляем app.state.notifier = TelegramNotifier
+    app.state.notifier = app.state.telegram_notifier
+    
+    app.state.docker = DockerManager(notifier=app.state.telegram_notifier)
     app.state.log_manager = LogManager()
+
+    # Инициализация KopiaBackupManager (асинхронная сессия) с AppriseNotifier
+    from sqlalchemy.ext.asyncio import AsyncSession
+    if AsyncSessionLocal:
+        async_session = AsyncSessionLocal()
+        app.state.backup = KopiaBackupManager(
+            db=async_session,
+            notifier=app.state.apprise_notifier,  # Используем Apprise для бэкапов
+            dry_run=settings.DRY_RUN_BACKUP if hasattr(settings, 'DRY_RUN_BACKUP') else False
+        )
+        # Для обратной совместимости оставляем app.state.kopia_backup (можно удалить позже)
+        app.state.kopia_backup = app.state.backup
+    else:
+        logger.warning("AsyncSessionLocal not configured, KopiaBackupManager will not be available")
+        app.state.backup = None
+        app.state.kopia_backup = None
+    
+    # Проверка legacy таблиц (старый BackupManager)
+    if AsyncSessionLocal:
+        try:
+            from sqlalchemy import inspect, text
+            from sqlalchemy.ext.asyncio import AsyncSession
+            async with AsyncSessionLocal() as session:
+                # Проверяем существование таблиц старого BackupManager
+                inspector = inspect(session.get_bind())
+                legacy_tables = ['backups', 'backup_schedules', 'restore_jobs']
+                existing = [t for t in legacy_tables if inspector.has_table(t)]
+                if existing:
+                    logger.warning(
+                        f"Legacy backup tables detected: {existing}. "
+                        "These tables are no longer used by KopiaBackupManager. "
+                        "Consider migrating data or dropping tables."
+                    )
+        except Exception as e:
+            logger.debug(f"Could not check legacy tables: {e}")
 
     # Первоначальная настройка
     await app.state.discovery.scan_all()
@@ -75,12 +120,12 @@ async def startup_tasks(app: FastAPI):
     ]
     _background_tasks.extend(asyncio.create_task(task) for task in background_tasks)
 
-    await app.state.notifier.send("🚀 Platform Master Service started")
+    await app.state.telegram_notifier.send("🚀 Platform Master Service started")
 
 
 async def shutdown_tasks(app: FastAPI):
     """Очистка ресурсов при остановке."""
-    await app.state.notifier.send("🛑 Platform Master Service stopping")
+    await app.state.telegram_notifier.send("🛑 Platform Master Service stopping")
 
     for task in _background_tasks:
         task.cancel()
@@ -157,11 +202,11 @@ async def health_check_loop(app: FastAPI):
                         f"🔴 Service {service.name} is unhealthy!\n"
                         f"Endpoint: {service.health.endpoint}\nError: {status.error}"
                     )
-                    await app.state.notifier.send(msg)
+                    await app.state.telegram_notifier.send(msg)
         except asyncio.CancelledError:
             break
         except Exception as e:
-            print(f"Health check error: {e}")
+            logger.error(f"Health check error: {e}")
         await asyncio.sleep(30)
 
 
@@ -173,15 +218,33 @@ async def watch_services_changes(app: FastAPI):
         if any("service.yml" in path or "docker-compose.yml" in path for _, path in changes):
             await app.state.discovery.scan_all()
             await app.state.caddy.regenerate_all(app.state.discovery.services)
-            await app.state.notifier.send("🔄 Services configuration updated")
+            await app.state.telegram_notifier.send("🔄 Services configuration updated")
 
 
 async def backup_schedule_loop(app: FastAPI):
-    """Цикл автоматического резервного копирования."""
-    try:
-        await app.state.backup.schedule_loop(app.state.discovery.services)
-    except asyncio.CancelledError:
-        pass
+    """Цикл автоматического резервного копирования с использованием KopiaBackupManager."""
+    # Если KopiaBackupManager доступен, используем новый планировщик
+    if app.state.kopia_backup:
+        logger.info("Starting Kopia backup scheduler")
+        try:
+            await backup_scheduler(app.state.kopia_backup, app.state.discovery)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Kopia backup scheduler error: {e}")
+            # Fallback на старый планировщик при ошибке
+            logger.warning("Falling back to legacy backup scheduler")
+            try:
+                await app.state.backup.schedule_loop(app.state.discovery.services)
+            except asyncio.CancelledError:
+                pass
+    else:
+        # Если KopiaBackupManager не доступен, используем старый планировщик
+        logger.warning("KopiaBackupManager not available, using legacy backup scheduler")
+        try:
+            await app.state.backup.schedule_loop(app.state.discovery.services)
+        except asyncio.CancelledError:
+            pass
 
 
 # ──────────────────────────────────────────────

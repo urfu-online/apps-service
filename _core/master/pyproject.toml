@@ -36,6 +36,8 @@ httpx = ">=0.28.1,<1.0.0"
 pytest-cov = ">=7.0.0,<8.0.0"
 coverage-badge = ">=1.1.2,<2.0.0"
 
+aiosqlite = "^0.22.1"
+apprise = "^1.9.9"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,21 @@
+{
+    "marketplaceRules": [],
+    "rules": [
+        {
+            "isUsed": false,
+            "path": "rules-architect/AGENTS.md"
+        },
+        {
+            "path": "rules-ask/AGENTS.md",
+            "isUsed": false
+        },
+        {
+            "path": "rules-code/AGENTS.md",
+            "isUsed": false
+        },
+        {
+            "path": "rules-debug/AGENTS.md",
+            "isUsed": false
+        }
+    ]
+}

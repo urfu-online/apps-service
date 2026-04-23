@@ -3,7 +3,7 @@
 """
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock, MagicMock, mock_open
 
 import pytest
 from click.exceptions import Exit
@@ -340,6 +340,147 @@ class TestListAvailabilityIntegration:
     )
     def test_parse_unsupported_formats(self, mapping):
         assert _parse_compose_port_mapping(mapping) is None
+
+
+class TestBackupCommands:
+    """Тесты команд управления бэкапами Kopia."""
+
+    @pytest.fixture
+    def mock_services(self):
+        """Мок сервиса с включённым бэкапом."""
+        with patch("apps_platform.cli.get_services") as mock:
+            mock.return_value = {
+                "test-service": {
+                    "path": Path("/tmp/test-service"),
+                    "type": "public",
+                }
+            }
+            yield mock
+
+    @pytest.fixture
+    def mock_service_yml_enabled(self):
+        """Мок service.yml с включённым бэкапом."""
+        yaml_content = {
+            "name": "test-service",
+            "backup": {"enabled": True},
+        }
+        with patch("apps_platform.cli.yaml.safe_load") as mock_load, \
+             patch("apps_platform.cli.Path.exists", return_value=True), \
+             patch("builtins.open", mock_open()):
+            mock_load.return_value = yaml_content
+            yield mock_load
+
+    @pytest.fixture
+    def mock_service_yml_disabled(self):
+        """Мок service.yml с отключённым бэкапом."""
+        yaml_content = {
+            "name": "test-service",
+            "backup": {"enabled": False},
+        }
+        with patch("apps_platform.cli.yaml.safe_load") as mock_load, \
+             patch("apps_platform.cli.Path.exists", return_value=True), \
+             patch("builtins.open", mock_open()):
+            mock_load.return_value = yaml_content
+            yield mock_load
+
+    @pytest.fixture
+    def mock_api_client(self):
+        """Мок APIClient."""
+        with patch("apps_platform.cli.get_api_client") as mock:
+            client = AsyncMock()
+            mock.return_value.__aenter__.return_value = client
+            yield client
+
+    def test_backup_create_success(self, mock_services, mock_service_yml_enabled, mock_api_client):
+        """Успешное создание бэкапа."""
+        mock_api_client.create_backup.return_value = {
+            "snapshot_id": "k123456789",
+            "message": "Backup created",
+        }
+
+        result = runner.invoke(app, ["backup", "create", "test-service"])
+        assert result.exit_code == 0
+        assert "✅ Бэкап создан" in result.output
+        mock_api_client.create_backup.assert_called_once_with("test-service")
+
+    def test_backup_create_service_not_found(self, mock_services):
+        """Сервис не найден."""
+        mock_services.return_value = {}
+
+        result = runner.invoke(app, ["backup", "create", "nonexistent"])
+        assert result.exit_code == 1
+        assert "не найден" in result.output
+
+    def test_backup_create_backup_disabled(self, mock_services, mock_service_yml_disabled):
+        """Бэкапы отключены."""
+        result = runner.invoke(app, ["backup", "create", "test-service"])
+        assert result.exit_code == 1
+        assert "не включены" in result.output
+
+    def test_backup_list_success(self, mock_services, mock_service_yml_enabled, mock_api_client):
+        """Успешный список снапшотов."""
+        mock_api_client.list_backups.return_value = [
+            {
+                "snapshot_id": "k123456789",
+                "created_at": "2024-01-01T12:00:00Z",
+                "size_bytes": 1024 * 1024,
+                "status": "completed",
+            }
+        ]
+
+        result = runner.invoke(app, ["backup", "list", "test-service"])
+        assert result.exit_code == 0
+        assert "k123456789" in result.output
+        mock_api_client.list_backups.assert_called_once_with("test-service")
+
+    def test_backup_list_empty(self, mock_services, mock_service_yml_enabled, mock_api_client):
+        """Пустой список снапшотов."""
+        mock_api_client.list_backups.return_value = []
+
+        result = runner.invoke(app, ["backup", "list", "test-service"])
+        assert result.exit_code == 0
+        assert "не найдено" in result.output
+
+    def test_backup_restore_success(self, mock_services, mock_service_yml_enabled, mock_api_client):
+        """Успешное восстановление."""
+        mock_api_client.restore_backup.return_value = {
+            "operation_id": "op123",
+            "message": "Restoration started",
+        }
+
+        result = runner.invoke(
+            app,
+            ["backup", "restore", "test-service", "k123456789", "--target", "/tmp/restore", "--force"],
+        )
+        assert result.exit_code == 0
+        assert "✅ Восстановление запущено" in result.output
+        mock_api_client.restore_backup.assert_called_once_with(
+            "test-service", "k123456789", "/tmp/restore", True
+        )
+
+    def test_backup_delete_success(self, mock_services, mock_api_client):
+        """Успешное удаление снапшота."""
+        mock_api_client.delete_backup.return_value = {
+            "message": "Snapshot deleted",
+        }
+
+        result = runner.invoke(app, ["backup", "delete", "k123456789"])
+        assert result.exit_code == 0
+        assert "✅ Снапшот удалён" in result.output
+        mock_api_client.delete_backup.assert_called_once_with("k123456789")
+
+    def test_backup_legacy_command(self, mock_services, mock_service_yml_enabled, mock_api_client):
+        """Старая команда backup (алиас)."""
+        mock_api_client.create_backup.return_value = {
+            "snapshot_id": "k123456789",
+            "message": "Backup created",
+        }
+
+        result = runner.invoke(app, ["backup", "test-service"])
+        assert result.exit_code == 0
+        assert "устарела" in result.output  # предупреждение
+        assert "✅ Бэкап создан" in result.output
+        mock_api_client.create_backup.assert_called_once_with("test-service")
 
 
 if __name__ == "__main__":
