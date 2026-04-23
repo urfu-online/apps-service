@@ -72,9 +72,15 @@ health:
 backup:
   enabled: false
   schedule: "0 2 * * *"         # cron-формат
-  retention: 7                  # Дней хранения
+  retention_days: 30            # Дней хранения (используется для пометки в БД)
   paths: []                     # Пути для бэкапа
   databases: []                 # Конфиг БД
+  kopia_policy:                 # Политики хранения в Kopia
+    keep-daily: 7
+    keep-weekly: 4
+    keep-monthly: 6
+    keep-annual: 2
+  storage_type: filesystem      # filesystem, s3, sftp
 tags: []
 ```
 
@@ -102,8 +108,8 @@ tags: []
 | **Caddy**           | `_core/master/app/services/caddy_manager.py`  | Генерация конфигов из Jinja2, Caddy API reload      |
 | **Docker**          | `_core/master/app/services/docker_manager.py` | Docker compose управление, stats, logs              |
 | **Health**          | `_core/master/app/services/health_checker.py` | HTTP health checks каждые 30 сек                    |
-| **Backup**          | `_core/master/app/services/backup_manager.py` | rsync, pg_dump, croniter scheduling, Restic         |
-| **Notifier**        | `_core/master/app/services/notifier.py`       | Telegram бот                                        |
+| **Backup**          | `_core/master/app/services/kopia_backup_manager.py` | Kopia с дедупликацией, шифрованием, политиками хранения |
+| **Notifier**        | `_core/master/app/services/notifier.py`       | ntfy.sh/Apprise (поддерживает Telegram, Email, Slack и 50+ сервисов) |
 | **TLS API**         | `_core/master/app/api/routes/tls.py`          | On-demand TLS валидация                             |
 | **API Routes**      | `_core/master/app/api/routes/*.py`            | services, deployments, logs, backups, health, users |
 | **UI Pages**        | `_core/master/app/ui/*_page.py`               | NiceGUI страницы: main, services, logs, backups     |
@@ -139,9 +145,11 @@ tags: []
 
 ### Backup
 
-- **Restic загрузка не работает** — скрипты есть, логика вызова в backup_manager.py, но окружение не настроено (требуются `RESTIC_REPOSITORY` и `RESTIC_PASSWORD`)
-- Работает: rsync, pg_dump, mysqldump, локальное хранение
-- Retention очистка по `metadata.json` timestamp
+- **Kopia** — система резервного копирования с дедупликацией и шифрованием. Репозиторий инициализируется в `_core/kopia/`.
+- **Переменные окружения:** `KOPIA_REPOSITORY`, `KOPIA_REPOSITORY_PASSWORD`, `KOPIA_STORAGE_TYPE` (filesystem, s3, sftp).
+- **Политики хранения:** управляются через `kopia_policy` в конфигурации сервиса (keep-daily, keep-weekly и т.д.).
+- **Уведомления:** отправляются через ntfy.sh/Apprise при успехе/ошибке бэкапа.
+- **Старые бэкапы:** локальные бэкапы в `backups/` больше не создаются.
 
 ### Service Discovery
 
