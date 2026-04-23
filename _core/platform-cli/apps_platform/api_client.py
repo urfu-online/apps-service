@@ -15,7 +15,6 @@ from tenacity import (
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_error_callback,
     RetryError,
 )
 
@@ -58,23 +57,25 @@ class APIClient:
         self,
         base_url: str,
         token: Optional[str] = None,
+        api_key: Optional[str] = None,
         timeout: int = DEFAULT_TIMEOUT,
         verify_ssl: bool = True,
     ) -> None:
         """
-        Инициализация клиента.
-
+        Инициализация API клиента.
+        
         Args:
-            base_url: Базовый URL API (например, http://localhost:8001)
-            token: Bearer token для аутентификации (опционально)
-            timeout: Таймаут запроса в секундах
-            verify_ssl: Проверять SSL сертификаты
+            base_url: Базовый URL API
+            token: Bearer token для авторизации
+            api_key: Bearer token (алиас для token, для обратной совместимости)
+            timeout: Таймаут запросов в секундах
+            verify_ssl: Проверять ли SSL сертификат
         """
         self.base_url = base_url.rstrip("/")
-        self.token = token
+        self.token = token or api_key
         self.timeout = ClientTimeout(total=timeout)
         self.verify_ssl = verify_ssl
-        self._session: Optional[ClientSession] = None
+        self._session: ClientSession | None = None
 
     async def __aenter__(self) -> "APIClient":
         await self.start()

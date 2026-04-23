@@ -8,7 +8,8 @@ import aiohttp
 from aiohttp import ClientSession, ClientTimeout
 from tenacity import RetryError
 
-from platform_cli.api.backup_client import BackupAPIClient, BackupResponse, APIClientError
+from apps_platform.api_client import APIClient as BackupAPIClient, APIClientError
+from typing import Any, Dict
 
 
 class TestBackupAPIClient:

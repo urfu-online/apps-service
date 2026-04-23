@@ -40,7 +40,8 @@ class KopiaBackupManager:
         self.notifier = notifier
         self.dry_run = dry_run
         self.subprocess_timeout = subprocess_timeout
-        self.scripts_path = Path("/projects/apps-service-opus/_core/backup/scripts")
+        # Dynamically resolve scripts path relative to this file's location
+        self.scripts_path = Path(__file__).resolve().parent.parent.parent / "_core" / "backup" / "scripts"
         self.kopia_password = os.environ.get("KOPIA_PASSWORD")
         if not self.kopia_password and not dry_run:
             logger.warning("KOPIA_PASSWORD environment variable is not set")
@@ -83,8 +84,6 @@ class KopiaBackupManager:
 
             # Запускаем скрипт kopia_backup.sh
             script_path = self.scripts_path / "kopia_backup.sh"
-            if not script_path.exists():
-                raise FileNotFoundError(f"Script not found: {script_path}")
 
             # Подготавливаем окружение
             env = os.environ.copy()
@@ -102,6 +101,10 @@ class KopiaBackupManager:
                 manifest_id = "dry-run-manifest-id"
                 snapshot_size = 0
             else:
+                # Проверяем существование скрипта только при реальном запуске
+                if not script_path.exists():
+                    raise FileNotFoundError(f"Script not found: {script_path}")
+                
                 # Выполняем скрипт
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
@@ -109,7 +112,15 @@ class KopiaBackupManager:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
-                stdout, stderr = await process.communicate()
+                
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=self.subprocess_timeout
+                    )
+                except asyncio.TimeoutError:
+                    process.kill()
+                    raise RuntimeError(f"Backup script timed out after {self.subprocess_timeout}s")
 
                 if process.returncode != 0:
                     error_msg = stderr.decode().strip()
@@ -177,8 +188,6 @@ class KopiaBackupManager:
             RuntimeError: если скрипт завершился с ошибкой
         """
         script_path = self.scripts_path / "kopia_policy.sh"
-        if not script_path.exists():
-            raise FileNotFoundError(f"Script not found: {script_path}")
 
         cmd = [
             "bash", str(script_path),
@@ -190,6 +199,10 @@ class KopiaBackupManager:
         if self.dry_run:
             logger.info(f"DRY RUN: would execute: {cmd}")
             return
+
+        # Проверяем существование скрипта только при реальном запуске
+        if not script_path.exists():
+            raise FileNotFoundError(f"Script not found: {script_path}")
 
         env = os.environ.copy()
         env["KOPIA_PASSWORD"] = self.kopia_password or ""
@@ -429,12 +442,14 @@ class KopiaBackupManager:
                 "snapshot_id": snapshot_id,
                 "target": target,
             }
-        
+
         # Запускаем скрипт восстановления
         script_path = self.scripts_path / "kopia_restore.sh"
+        
+        # Проверяем существование скрипта только при реальном запуске
         if not script_path.exists():
             raise FileNotFoundError(f"Script not found: {script_path}")
-        
+
         env = os.environ.copy()
         env["KOPIA_PASSWORD"] = self.kopia_password or ""
         env["KOPIA_REPOSITORY_PASSWORD"] = self.kopia_password or ""

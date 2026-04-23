@@ -120,9 +120,11 @@ STAGING_DIR=$(create_tempdir)
 log "INFO" "Staging directory: $STAGING_DIR"
 
 # Database dump (if applicable)
+# Use environment variables for passwords to avoid exposing in process list
 if command -v pg_dump >/dev/null 2>&1 && [[ -n "${PGHOST:-}" ]]; then
     log "INFO" "Creating PostgreSQL dump"
     mkdir -p "$STAGING_DIR/db"
+    export PGPASSWORD="${PGPASSWORD:-}"
     pg_dump --clean --if-exists --no-owner --no-privileges \
         -h "${PGHOST:-localhost}" -p "${PGPORT:-5432}" \
         -U "${PGUSER:-postgres}" -d "${PGDATABASE:-postgres}" \
@@ -130,18 +132,22 @@ if command -v pg_dump >/dev/null 2>&1 && [[ -n "${PGHOST:-}" ]]; then
         log "WARN" "PostgreSQL dump failed, skipping"
         rm -f "$STAGING_DIR/db/postgres.sql"
     }
+    unset PGPASSWORD
 fi
 
 if command -v mysqldump >/dev/null 2>&1 && [[ -n "${MYSQL_HOST:-}" ]]; then
     log "INFO" "Creating MySQL dump"
     mkdir -p "$STAGING_DIR/db"
+    # MySQL reads MYSQL_PWD automatically
+    export MYSQL_PWD="${MYSQL_PASSWORD:-}"
     mysqldump -h "${MYSQL_HOST:-localhost}" -P "${MYSQL_PORT:-3306}" \
-        -u "${MYSQL_USER:-root}" -p"${MYSQL_PASSWORD:-}" \
+        -u "${MYSQL_USER:-root}" \
         --all-databases --single-transaction --routines --triggers \
         > "$STAGING_DIR/db/mysql.sql" 2>/dev/null || {
         log "WARN" "MySQL dump failed, skipping"
         rm -f "$STAGING_DIR/db/mysql.sql"
     }
+    unset MYSQL_PWD
 fi
 
 # Filesystem copy using rsync (preserve permissions, exclude .git, node_modules, etc.)
@@ -157,16 +163,21 @@ rsync -a --delete \
     --exclude='*.log' \
     --exclude='*.tmp' \
     --exclude='*.temp' \
-    "$BACKUP_SOURCE/" "$STAGING_DIR/fs/" 2>/dev/null || true
+    "$BACKUP_SOURCE/" "$STAGING_DIR/fs/" || {
+    log "ERROR" "Failed to copy files from $BACKUP_SOURCE"
+    rm -rf "$STAGING_DIR"
+    exit 1
+}
 
 # Connect to Kopia server
 export KOPIA_PASSWORD="$(cat "$KOPIA_PASSWORD_FILE" 2>/dev/null || echo "$KOPIA_SERVER_PASSWORD")"
 KOPIA_SERVER="http://$KOPIA_HOST:$KOPIA_PORT"
 
 log "INFO" "Connecting to Kopia server at $KOPIA_SERVER"
-kopia server status --address="$KOPIA_SERVER" --username="$KOPIA_USER" --password="$KOPIA_PASSWORD" || {
+kopia server status --address="$KOPIA_SERVER" --username="$KOPIA_USER" || {
     log "ERROR" "Cannot connect to Kopia server"
     notify "Backup Failed" "Cannot connect to Kopia server for service $BACKUP_SERVICE" "high"
+    rm -rf "$STAGING_DIR"
     exit 1
 }
 
@@ -180,15 +191,17 @@ if [[ -n "$BACKUP_TAGS" ]]; then
     done
 fi
 
+# Kopia reads KOPIA_REPOSITORY_PASSWORD from environment automatically
+export KOPIA_REPOSITORY_PASSWORD
 MANIFEST_ID=$(kopia snapshot create "$STAGING_DIR" \
     --host "$BACKUP_SERVICE" \
     $TAG_ARGS \
-    --password="$KOPIA_REPOSITORY_PASSWORD" \
     --json | jq -r '.rootEntry.manifestID')
 
 if [[ -z "$MANIFEST_ID" || "$MANIFEST_ID" == "null" ]]; then
     log "ERROR" "Failed to create snapshot"
     notify "Backup Failed" "Snapshot creation failed for service $BACKUP_SERVICE" "high"
+    rm -rf "$STAGING_DIR"
     exit 1
 fi
 
@@ -199,3 +212,4 @@ echo "$MANIFEST_ID"
 notify "Backup Completed" "Service $BACKUP_SERVICE backed up successfully (ID: $MANIFEST_ID)" "low"
 
 log "INFO" "Backup completed successfully"
+rm -rf "$STAGING_DIR"
