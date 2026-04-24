@@ -1,5 +1,5 @@
 # ntfy server configuration
-# See https://docs.ntfy.sh/config/ for full options
+# See https://docs.ntfy.sh/config/ for full options.
 
 # Base URL for external access
 base-url: "http://localhost:8080"
@@ -9,11 +9,13 @@ auth-default-access: "deny"
 auth-file: "/var/lib/ntfy/user.db"
 
 # Users (will be created on first run if not exist)
-# Format: user:password
+# Format: user:password_hash
 # Use `ntfy hash` to generate password hash
-users:
-  - "backup-bot:$2y$10$8B7c5Q5q5Q5q5Q5q5Q5q5uQ5q5Q5q5Q5q5Q5q5Q5q5Q5q5Q5q5Q5q5"  # password: backup-bot-password
-  - "admin:$2y$10$8B7c5Q5q5Q5q5Q5q5Q5q5uQ5q5Q5q5Q5q5Q5q5Q5q5Q5q5Q5q5Q5q5"      # password: admin-password
+# Example:
+# users:
+#   - "backup-bot:$2y$10$generated_hash_here"  # password: choose_strong_password
+#   - "admin:$2y$10$generated_hash_here"      # password: choose_strong_password
+users: []  # Configure users with `ntfy hash` command
 
 # Access control
 # Default: deny, override per-topic

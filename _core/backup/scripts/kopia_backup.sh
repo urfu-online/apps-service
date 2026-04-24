@@ -151,6 +151,9 @@ if command -v mysqldump >/dev/null 2>&1 && [[ -n "${MYSQL_HOST:-}" ]]; then
 fi
 
 # Filesystem copy using rsync (preserve permissions, exclude .git, node_modules, etc.)
+# Check for required tools
+require_cmd "jq"
+
 log "INFO" "Copying files from $BACKUP_SOURCE to staging"
 rsync -a --delete \
     --exclude='.git' \

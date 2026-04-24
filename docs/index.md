@@ -29,15 +29,14 @@
 | Компонент | Готово |
 |---|---|
 | ServiceDiscovery, CaddyManager, DockerManager | ✅ |
-| Health checks, Telegram-уведомления | ✅ |
+| Health checks, ntfy/Apprise-уведомления | ✅ |
 | NiceGUI UI (dashboard, сервисы, логи) | ✅ |
 | Platform CLI (9 команд) | ✅ |
 | API (services, deployments, health, users) | ✅ |
-| Бэкапы файлов и БД (rsync, pg_dump) | ✅ |
-| Бэкапы в Restic | ❌ Скрипты не написаны |
+| Бэкапы Kopia (едупликация, шифрование) | ✅ |
+| Backup restore/delete в UI | ✅ |
 | LogManager (сбор логов) | ❌ Заглушка |
 | Loki / Prometheus / Grafana | ❌ Не начато |
 | Страница сервиса в UI | ❌ Редирект |
-| Backup restore/delete в UI | ❌ Заглушки |
 | Login endpoint в API | ❌ Нет |
 | Миграции БД (Alembic) | ❌ `create_all()` |

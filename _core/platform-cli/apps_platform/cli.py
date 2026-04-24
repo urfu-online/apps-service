@@ -1024,8 +1024,14 @@ async def _backup_restore_async(
 @backup_app.command("delete")
 def backup_delete(
     snapshot_id: str = typer.Argument(..., help="ID снапшота"),
+    force: bool = typer.Option(False, "--force", "-f", help="Пропустить подтверждение"),
 ) -> None:
     """Удалить снапшот."""
+    if not force:
+        confirm = typer.confirm(f"Вы уверены, что хотите удалить снапшот {snapshot_id}?")
+        if not confirm:
+            console.print("[yellow]⚠️ Операция отменена[/yellow]")
+            raise typer.Exit(0)
     asyncio.run(_backup_delete_async(snapshot_id))
 
 

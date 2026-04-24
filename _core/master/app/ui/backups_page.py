@@ -24,6 +24,11 @@ class BackupsPage:
         self.polling_interval = 5  # секунды
         self.loading = False
         self.api_base = "/api/backups"
+        # Сохранение настроек для предотвращения сброса при рендере
+        self._retention_days_value: int = 7
+        self._keep_daily_value: int = 7
+        self._keep_weekly_value: int = 4
+        self._keep_monthly_value: int = 12
 
     async def render(self):
         """Рендер страницы бэкапов."""
@@ -457,43 +462,42 @@ class BackupsPage:
             with ui.card().classes('p-4 mb-4'):
                 ui.label('Общие настройки').classes('text-subtitle1 mb-3')
                 with ui.row().classes('w-full gap-4'):
-                    retention_days = ui.number(
+                    self.retention_days_input = ui.number(
                         label='Дней хранения',
                         min=1,
                         max=3650,
-                        value=7,
+                        value=self._retention_days_value,
                         format='%.0f'
                     ).props('outlined dense').classes('flex-1')
-                    keep_daily = ui.number(
+                    self.keep_daily_input = ui.number(
                         label='Ежедневных копий',
                         min=1,
                         max=100,
-                        value=7,
+                        value=self._keep_daily_value,
                         format='%.0f'
                     ).props('outlined dense').classes('flex-1')
                 with ui.row().classes('w-full gap-4 mt-2'):
-                    keep_weekly = ui.number(
+                    self.keep_weekly_input = ui.number(
                         label='Еженедельных копий',
                         min=1,
                         max=52,
-                        value=4,
+                        value=self._keep_weekly_value,
                         format='%.0f'
                     ).props('outlined dense').classes('flex-1')
-                    keep_monthly = ui.number(
+                    self.keep_monthly_input = ui.number(
                         label='Ежемесячных копий',
                         min=1,
                         max=120,
-                        value=12,
+                        value=self._keep_monthly_value,
                         format='%.0f'
                     ).props('outlined dense').classes('flex-1')
 
             with ui.card().classes('p-4'):
                 ui.label('Применить к сервису').classes('text-subtitle1 mb-3')
                 with ui.row().classes('w-full gap-4 items-end'):
-                    # Получаем список сервисов из app.state.discovery
                     from app.main import app
                     services = list(app.state.discovery.services.keys())
-                    service_select = ui.select(
+                    self.policy_service_select = ui.select(
                         options=services,
                         label='Сервис',
                         value=None
@@ -502,11 +506,11 @@ class BackupsPage:
                         'Применить политику',
                         icon='policy',
                         on_click=lambda: self._apply_retention_policy(
-                            service_select.value,
-                            retention_days.value,
-                            keep_daily.value,
-                            keep_weekly.value,
-                            keep_monthly.value
+                            self.policy_service_select.value,
+                            self.retention_days_input.value,
+                            self.keep_daily_input.value,
+                            self.keep_weekly_input.value,
+                            self.keep_monthly_input.value
                         )
                     ).props('unelevated color=primary')
 
@@ -525,9 +529,33 @@ class BackupsPage:
         if not service_name:
             ui.notify('Выберите сервис', type='warning')
             return
+
+        # Сохраняем значения для предотвращения сброса
+        self._retention_days_value = retention_days
+        self._keep_daily_value = keep_daily
+        self._keep_weekly_value = keep_weekly
+        self._keep_monthly_value = keep_monthly
+
         ui.notify(f'Применение политики к {service_name}...', type='info', timeout=None)
-        # TODO: реализовать вызов API для enforce retention
-        ui.notify('Функция применения политики будет реализована в Phase 5', type='info')
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.api_base}/{service_name}/retention"
+                payload = {
+                    "retention_days": retention_days,
+                    "keep_daily": keep_daily,
+                    "keep_weekly": keep_weekly,
+                    "keep_monthly": keep_monthly,
+                }
+                async with session.post(url, json=payload) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        ui.notify(f'Политика применена: {result.get("message", "")}', type='positive')
+                    else:
+                        error = await resp.text()
+                        ui.notify(f'Ошибка: {error}', type='negative')
+        except Exception as e:
+            ui.notify(f'Ошибка: {e}', type='negative')
 
 
 async def render_backups_page():

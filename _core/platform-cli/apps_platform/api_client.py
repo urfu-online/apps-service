@@ -112,7 +112,7 @@ class APIClient:
         self,
         method: str,
         endpoint: str,
-        json: Optional[Dict[str, Any]] = None,
+        json_data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Выполнение HTTP запроса с retry логикой."""
@@ -126,7 +126,7 @@ class APIClient:
             async with self._session.request(
                 method=method,
                 url=url,
-                json=json,
+                json=json_data,
                 params=params,
                 ssl=None if self.verify_ssl else False,
             ) as response:
@@ -141,9 +141,9 @@ class APIClient:
             logger.error(f"API error {e.status}: {e.message}")
             raise APIClientError(f"API error {e.status}: {e.message}") from e
 
-    async def post(self, endpoint: str, json: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def post(self, endpoint: str, json_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """POST запрос."""
-        return await self._request("POST", endpoint, json=json)
+        return await self._request("POST", endpoint, json_data=json_data)
 
     async def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """GET запрос."""
@@ -203,12 +203,12 @@ class APIClient:
             Ответ API с результатом операции
         """
         endpoint = f"/api/backups/{service_name}/restore/{snapshot_id}"
-        json = {}
+        json_data = {}
         if target is not None:
-            json["target"] = target
+            json_data["target"] = target
         if force:
-            json["force"] = force
-        return await self.post(endpoint, json=json)
+            json_data["force"] = force
+        return await self.post(endpoint, json_data=json_data)
 
     async def delete_backup(self, snapshot_id: str) -> Dict[str, Any]:
         """
