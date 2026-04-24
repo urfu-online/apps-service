@@ -71,7 +71,12 @@ async def startup_tasks(app: FastAPI):
     app.state.notifier = app.state.telegram_notifier
     
     app.state.docker = DockerManager(notifier=app.state.telegram_notifier)
-    app.state.log_manager = LogManager()
+    app.state.log_manager = LogManager(
+        docker_manager=app.state.docker,
+        cache_ttl=settings.LOG_CACHE_TTL,
+        cache_size=settings.LOG_CACHE_SIZE,
+        safe_export_path=Path(settings.DATA_DIR) / "log_exports"
+    )
 
     # Инициализация KopiaBackupManager (асинхронная сессия) с AppriseNotifier
     from sqlalchemy.ext.asyncio import AsyncSession
