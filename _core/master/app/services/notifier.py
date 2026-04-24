@@ -4,7 +4,6 @@ import aiohttp
 from datetime import datetime, timezone
 import logging
 
-from app.config import settings
 from app.core.events import event_bus
 
 # Настройка логирования
@@ -13,55 +12,68 @@ logger = logging.getLogger(__name__)
 
 class TelegramNotifier:
     """Уведомления в Telegram"""
-    
+
     def __init__(
-        self, 
-        bot_token: str, 
+        self,
+        bot_token: str,
         chat_ids: Optional[List[str]] = None
     ):
         self.bot_token = bot_token
         self.chat_ids = chat_ids or []
         self.api_base = f"https://api.telegram.org/bot{bot_token}"
-    
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Возвращает или создает aiohttp сессию."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    async def close(self):
+        """Закрывает сессию."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+
     async def send(
-        self, 
-        message: str, 
+        self,
+        message: str,
         chat_id: Optional[str] = None,
         parse_mode: str = "HTML"
     ) -> bool:
         """Отправка сообщения"""
         targets = [chat_id] if chat_id else self.chat_ids
-        
+
         if not targets:
             logger.warning("No chat IDs configured for Telegram notifications")
             return False
-        
+
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         full_message = f"<b>🖥 Platform Alert</b>\n<i>{timestamp}</i>\n\n{message}"
-        
+
         success = True
-        async with aiohttp.ClientSession() as session:
-            for target in targets:
-                try:
-                    async with session.post(
-                        f"{self.api_base}/sendMessage",
-                        json={
-                            "chat_id": target,
-                            "text": full_message,
-                            "parse_mode": parse_mode,
-                            "disable_web_page_preview": True
-                        }
-                    ) as response:
-                        if response.status != 200:
-                            error_text = await response.text()
-                            logger.error(f"Telegram send failed for chat {target}: {error_text}")
-                            success = False
-                        else:
-                            logger.info(f"Message sent to Telegram chat {target}")
-                except Exception as e:
-                    logger.error(f"Telegram send error to chat {target}: {e}")
-                    success = False
-        
+        session = await self._get_session()
+        for target in targets:
+            try:
+                async with session.post(
+                    f"{self.api_base}/sendMessage",
+                    json={
+                        "chat_id": target,
+                        "text": full_message,
+                        "parse_mode": parse_mode,
+                        "disable_web_page_preview": True
+                    }
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Telegram send failed for chat {target}: {error_text}")
+                        success = False
+                    else:
+                        logger.info(f"Message sent to Telegram chat {target}")
+            except Exception as e:
+                logger.error(f"Telegram send error to chat {target}: {e}")
+                success = False
+
         return success
     
     async def send_service_status(
@@ -174,7 +186,11 @@ class AppriseNotifier:
 
         # Apprise поддерживает синхронную отправку, обернём в thread
         import asyncio
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         try:
             # Apprise не имеет асинхронного API, используем run_in_executor
             success = await loop.run_in_executor(

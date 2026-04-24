@@ -52,6 +52,7 @@ fi
 # Start Kopia server
 echo "Starting Kopia server on ${KOPIA_SERVER_ADDRESS:-0.0.0.0:51515}"
 exec kopia server start \
+    --config-file=/kopia/config/repository.config \
     --disable-grpc \
     --address="${KOPIA_SERVER_ADDRESS:-0.0.0.0:51515}" \
     --server-username="${KOPIA_SERVER_USERNAME:-admin}" \

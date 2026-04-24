@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime, timezone
+import re
+from datetime import datetime
 
 from app.core.security import get_current_user
 
@@ -19,6 +20,13 @@ class RestoreRequest(BaseModel):
     """Запрос на восстановление снапшота"""
     target: Optional[str] = None
     force: bool = False
+
+
+def validate_snapshot_id(snapshot_id: str) -> str:
+    """Валидация snapshot_id (формат: k[alphanumeric])."""
+    if not re.match(r'^k[a-zA-Z0-9]+$', snapshot_id):
+        raise ValueError(f"Invalid snapshot_id format: {snapshot_id}. Expected format: k[alphanumeric]")
+    return snapshot_id
 
 
 class BackupSnapshotResponse(BaseModel):
@@ -81,7 +89,7 @@ async def create_backup(
             return BackupOperationResponse(
                 success=True,
                 message=f"Backup created for service '{svc}'",
-                snapshot_id=backup_record.path,  # path содержит manifest_id
+                snapshot_id=backup_record.snapshot_id,
             )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -134,6 +142,12 @@ async def restore_backup(
     """
     Восстановление с проверкой существования снапшота и статуса контейнера
     """
+    # Валидация snapshot_id
+    try:
+        snapshot_id = validate_snapshot_id(snapshot_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     from app.main import app
     
     # Проверяем существование сервиса
@@ -174,10 +188,16 @@ async def delete_snapshot(
     """
     Удаление снапшота с проверкой использования в активных задачах
     """
+    # Валидация snapshot_id
+    try:
+        snapshot_id = validate_snapshot_id(snapshot_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     from app.main import app
     
     try:
-        result = await app.state.backup.delete_snapshot(snapshot_id)
+        await app.state.backup.delete_snapshot(snapshot_id)
         return BackupOperationResponse(
             success=True,
             message=f"Snapshot {snapshot_id} deleted",

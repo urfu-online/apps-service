@@ -2,7 +2,7 @@
 import asyncio
 import aiohttp
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 import humanize
 from nicegui import ui
 
@@ -196,13 +196,16 @@ class BackupsPage:
         # Подготовка строк
         rows = []
         for backup in filtered:
+            snapshot_id = backup.get('snapshot_id', '')
+            # Безопасное сокращение snapshot_id
+            display_id = snapshot_id[:8] + '...' if len(snapshot_id) > 8 else snapshot_id
             rows.append({
-                'snapshot_id': backup['snapshot_id'][:8] + '...',
+                'snapshot_id': display_id,
                 'created_at': self._format_datetime(backup['created_at']),
                 'status': self._get_status_emoji(backup['status']),
                 'size': self._format_size(backup.get('size_bytes')),
                 'retention_days': f"{backup.get('retention_days', 7)} дн.",
-                'backup_data': backup,
+                'snapshot_id_full': snapshot_id,  # Только ID, а не все данные
             })
 
         table = ui.table(

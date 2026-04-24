@@ -7,21 +7,16 @@ import asyncio
 import logging
 import os
 import tempfile
-import json
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, Optional, List
 import re
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models.backup import Backup, BackupRecord
+from app.models.backup import BackupRecord
 from app.models.service import Service
-from app.config import settings
-
-if TYPE_CHECKING:
-    from app.services.notifier import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +37,11 @@ class KopiaBackupManager:
         self.subprocess_timeout = subprocess_timeout
         # Dynamically resolve scripts path relative to this file's location
         self.scripts_path = Path(__file__).resolve().parent.parent.parent / "_core" / "backup" / "scripts"
-        self.kopia_password = os.environ.get("KOPIA_PASSWORD")
+        self.kopia_password = os.environ.get("KOPIA_REPOSITORY_PASSWORD")
         if not self.kopia_password and not dry_run:
-            logger.warning("KOPIA_PASSWORD environment variable is not set")
+            logger.warning("KOPIA_REPOSITORY_PASSWORD environment variable is not set")
 
-    async def run_backup(self, service_name: str) -> Backup:
+    async def run_backup(self, service_name: str) -> BackupRecord:
         """
         Выполняет резервное копирование сервиса с помощью Kopia.
 
@@ -87,7 +82,7 @@ class KopiaBackupManager:
 
             # Подготавливаем окружение
             env = os.environ.copy()
-            env["KOPIA_PASSWORD"] = self.kopia_password or ""
+            env["KOPIA_REPOSITORY_PASSWORD"] = self.kopia_password or ""
             # Переменные для скрипта
             env["SERVICE_NAME"] = service_name
             env["BACKUP_SOURCE"] = str(tmp_path)
@@ -96,7 +91,7 @@ class KopiaBackupManager:
 
             if self.dry_run:
                 logger.info(f"DRY RUN: would execute: {cmd}")
-                logger.info(f"DRY RUN: env contains KOPIA_PASSWORD (hidden)")
+                logger.info("DRY RUN: env contains KOPIA_REPOSITORY_PASSWORD (hidden)")
                 # Создаём фиктивный manifest_id для dry-run
                 manifest_id = "dry-run-manifest-id"
                 snapshot_size = 0
@@ -142,21 +137,14 @@ class KopiaBackupManager:
 
                 logger.info(f"Backup completed, manifest_id: {manifest_id}")
 
-        # Создаём запись в БД
-        backup_record = Backup(
-            service_id=service.id,
-            name=f"{service_name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
-            timestamp=datetime.now(timezone.utc),
-            size=snapshot_size,
-            status="completed",
-            reason="scheduled",
-            path=manifest_id,
-            metadata_json=json.dumps({
-                "manifest_id": manifest_id,
-                "service_name": service_name,
-                "kopia_repository": os.environ.get("KOPIA_REPOSITORY", ""),
-                "backup_time": datetime.now(timezone.utc).isoformat(),
-            }),
+        # Создаём запись в БД (BackupRecord для Kopia)
+        backup_record = BackupRecord(
+            service_name=service_name,
+            snapshot_id=manifest_id,
+            status="created",
+            created_at=datetime.now(timezone.utc),
+            size_bytes=snapshot_size,
+            retention_days=service.backup_config.retention_days if service.backup_config else 7,
         )
         self.db.add(backup_record)
         await self.db.commit()
@@ -205,7 +193,7 @@ class KopiaBackupManager:
             raise FileNotFoundError(f"Script not found: {script_path}")
 
         env = os.environ.copy()
-        env["KOPIA_PASSWORD"] = self.kopia_password or ""
+        env["KOPIA_REPOSITORY_PASSWORD"] = self.kopia_password or ""
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -451,9 +439,8 @@ class KopiaBackupManager:
             raise FileNotFoundError(f"Script not found: {script_path}")
 
         env = os.environ.copy()
-        env["KOPIA_PASSWORD"] = self.kopia_password or ""
         env["KOPIA_REPOSITORY_PASSWORD"] = self.kopia_password or ""
-        
+
         cmd = [
             "bash", str(script_path),
             "--manifest", snapshot_id,
@@ -524,8 +511,8 @@ class KopiaBackupManager:
         
         # Удаляем через Kopia CLI
         env = os.environ.copy()
-        env["KOPIA_PASSWORD"] = self.kopia_password or ""
-        
+        env["KOPIA_REPOSITORY_PASSWORD"] = self.kopia_password or ""
+
         # Команда kopia snapshot delete
         cmd = ["kopia", "snapshot", "delete", snapshot_id, "--delete"]
         

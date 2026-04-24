@@ -124,7 +124,7 @@ export KOPIA_PASSWORD="$(cat "$KOPIA_PASSWORD_FILE" 2>/dev/null || echo "$KOPIA_
 KOPIA_SERVER="http://$KOPIA_HOST:$KOPIA_PORT"
 
 log "INFO" "Connecting to Kopia server at $KOPIA_SERVER"
-kopia server status --address="$KOPIA_SERVER" --username="$KOPIA_USER" --password="$KOPIA_PASSWORD" || {
+kopia server status --address="$KOPIA_SERVER" --username="$KOPIA_USER" || {
     log "ERROR" "Cannot connect to Kopia server"
     notify "Restore Failed" "Cannot connect to Kopia server for manifest $MANIFEST_ID" "high"
     exit 1
@@ -135,7 +135,8 @@ mkdir -p "$TARGET_DIR"
 
 # Restore snapshot
 log "INFO" "Restoring snapshot $MANIFEST_ID to $TARGET_DIR"
-kopia restore "$MANIFEST_ID" "$TARGET_DIR" --password="$KOPIA_REPOSITORY_PASSWORD" || {
+export KOPIA_REPOSITORY_PASSWORD
+kopia restore "$MANIFEST_ID" "$TARGET_DIR" || {
     log "ERROR" "Restore failed"
     notify "Restore Failed" "Restore of manifest $MANIFEST_ID failed" "high"
     exit 1
