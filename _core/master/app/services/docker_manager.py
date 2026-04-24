@@ -195,13 +195,17 @@ class DockerManager:
             "message": result["stderr"] if result["returncode"] != 0 else "OK"
         }
     
-    async def get_logs(
+    def get_logs(
         self, 
         service: ServiceManifest, 
         tail: int = 100,
         since: Optional[str] = None
     ) -> str:
-        """Получение логов сервиса"""
+        """Получение логов сервиса (синхронный метод для вызова через asyncio.to_thread)
+        
+        ⚠️ КРИТИЧНО: Docker SDK синхронный. Этот метод должен вызываться через 
+        await asyncio.to_thread() чтобы не блокировать event loop.
+        """
         logs = []
 
         with docker_client() as client:
