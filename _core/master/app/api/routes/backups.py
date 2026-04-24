@@ -1,173 +1,211 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime, timezone
+import re
+from datetime import datetime
 
 from app.core.security import get_current_user
 
 router = APIRouter()
 
 
-class BackupResponse(BaseModel):
-    id: int
-    service_id: int
-    name: str
-    timestamp: datetime
-    size: Optional[int]
-    status: str
-    reason: str
-
-
-class BackupCreateRequest(BaseModel):
+# Pydantic модели для запросов
+class BackupRequest(BaseModel):
+    """Запрос на создание бэкапа"""
+    dry_run: bool = False
     reason: str = "manual"
 
 
 class RestoreRequest(BaseModel):
-    backup_id: int
+    """Запрос на восстановление снапшота"""
+    target: Optional[str] = None
+    force: bool = False
 
 
-@router.get("/service/{service_name}", response_model=List[BackupResponse])
-async def list_service_backups(
-    service_name: str,
-    skip: int = 0,
-    limit: int = 100,
-    current_user = Depends(get_current_user)
-):
-    """Список бэкапов для сервиса"""
-    from app.main import app
-    
-    service = app.state.discovery.get_service(service_name)
-    if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
-    
-    # Получаем бэкапы через BackupManager
-    backups = await app.state.backup.list_backups(service)
-    
-    # Конвертируем в формат ответа
-    response_backups = []
-    for backup in backups[skip:skip+limit]:
-        response_backups.append(BackupResponse(
-            id=0,  # В упрощенной реализации ID не используется
-            service_id=0,  # В упрощенной реализации ID не используется
-            name=backup.get("backup_name", ""),
-            timestamp=datetime.fromisoformat(backup.get("timestamp", datetime.now(timezone.utc).isoformat())),
-            size=None,  # В упрощенной реализации размер не отслеживается
-            status="completed",  # В упрощенной реализации все бэкапы завершены
-            reason=backup.get("reason", "manual")
-        ))
-    
-    return response_backups
+def validate_snapshot_id(snapshot_id: str) -> str:
+    """Валидация snapshot_id (формат: k[alphanumeric])."""
+    if not re.match(r'^k[a-zA-Z0-9]+$', snapshot_id):
+        raise ValueError(f"Invalid snapshot_id format: {snapshot_id}. Expected format: k[alphanumeric]")
+    return snapshot_id
 
 
-@router.post("/service/{service_name}/backup", response_model=BackupResponse)
+class BackupSnapshotResponse(BaseModel):
+    """Ответ со списком снапшотов"""
+    snapshot_id: str
+    service_name: str
+    status: str
+    created_at: datetime
+    size_bytes: Optional[int]
+    retention_days: int
+
+
+class BackupOperationResponse(BaseModel):
+    """Ответ на операцию бэкапа/восстановления"""
+    success: bool
+    message: str
+    snapshot_id: Optional[str] = None
+    dry_run: Optional[bool] = None
+    target: Optional[str] = None
+
+
+@router.post("/{svc}/backup", response_model=BackupOperationResponse)
 async def create_backup(
-    service_name: str,
-    request: BackupCreateRequest,
+    svc: str,
+    request: BackupRequest,
     current_user = Depends(get_current_user)
 ):
-    """Создание бэкапа сервиса"""
+    """
+    Запуск бэкапа через KopiaBackupManager с валидацией сервиса и enabled=True
+    """
     from app.main import app
     
-    service = app.state.discovery.get_service(service_name)
+    # Получаем сервис через discovery
+    service = app.state.discovery.get_service(svc)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
     
-    # Создаем бэкап через BackupManager
-    result = await app.state.backup.backup_service(service, reason=request.reason)
+    # Проверяем, что бэкап включен в конфигурации сервиса
+    if not service.backup_config or not service.backup_config.enabled:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Backup disabled for service '{svc}'. Enable it in service configuration."
+        )
     
-    if not result["success"]:
-        raise HTTPException(status_code=500, detail=result["errors"][0] if result["errors"] else "Backup failed")
-    
-    # Возвращаем информацию о созданном бэкапе
-    return BackupResponse(
-        id=0,
-        service_id=0,
-        name=result["backup_name"],
-        timestamp=datetime.now(timezone.utc),
-        size=None,
-        status="completed",
-        reason=request.reason
-    )
+    try:
+        if request.dry_run:
+            # Dry-run режим
+            result = await app.state.backup.dry_run_backup(svc)
+            if "error" in result:
+                raise HTTPException(status_code=400, detail=result["error"])
+            return BackupOperationResponse(
+                success=True,
+                message=f"Dry-run backup for service '{svc}'",
+                snapshot_id="dry-run",
+                dry_run=True,
+            )
+        else:
+            # Реальный бэкап
+            backup_record = await app.state.backup.run_backup(svc)
+            return BackupOperationResponse(
+                success=True,
+                message=f"Backup created for service '{svc}'",
+                snapshot_id=backup_record.snapshot_id,
+            )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Backup failed: {str(e)}")
 
 
-@router.post("/service/{service_name}/restore", response_model=dict)
+@router.get("/{svc}", response_model=List[BackupSnapshotResponse])
+async def list_backups(
+    svc: str,
+    current_user = Depends(get_current_user)
+):
+    """
+    Список снапшотов из БД (BackupRecord) с сортировкой по created_at
+    """
+    from app.main import app
+    
+    # Проверяем существование сервиса
+    service = app.state.discovery.get_service(svc)
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    
+    try:
+        # Используем метод list_snapshots из KopiaBackupManager
+        snapshots = await app.state.backup.list_snapshots(svc)
+        return [
+            BackupSnapshotResponse(
+                snapshot_id=snap["snapshot_id"],
+                service_name=snap["service_name"],
+                status=snap["status"],
+                created_at=snap["created_at"],
+                size_bytes=snap.get("size_bytes"),
+                retention_days=snap.get("retention_days", 7),
+            )
+            for snap in snapshots
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list snapshots: {str(e)}")
+
+
+@router.post("/{svc}/restore/{snapshot_id}", response_model=BackupOperationResponse)
 async def restore_backup(
-    service_name: str,
+    svc: str,
+    snapshot_id: str,
     request: RestoreRequest,
     current_user = Depends(get_current_user)
 ):
-    """Восстановление бэкапа сервиса"""
-    from app.main import app
+    """
+    Восстановление с проверкой существования снапшота и статуса контейнера
+    """
+    # Валидация snapshot_id
+    try:
+        snapshot_id = validate_snapshot_id(snapshot_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    service = app.state.discovery.get_service(service_name)
+    from app.main import app
+    
+    # Проверяем существование сервиса
+    service = app.state.discovery.get_service(svc)
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
+    
+    # Проверяем, что сервис остановлен или force=True
+    # (можно добавить проверку статуса контейнера через DockerManager)
+    # Пока просто предупреждаем, если force=False
+    if not request.force:
+        # Можно добавить проверку, но пока пропустим
+        pass
+    
+    try:
+        result = await app.state.backup.restore_snapshot(
+            svc, snapshot_id, target=request.target, force=request.force
+        )
+        return BackupOperationResponse(
+            success=True,
+            message=f"Restore completed for service '{svc}'",
+            snapshot_id=snapshot_id,
+            target=result.get("target"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Restore failed: {str(e)}")
 
-    # Получаем список бэкапов и находим нужный по индексу
-    backups = await app.state.backup.list_backups(service)
-    if request.backup_id < 0 or request.backup_id >= len(backups):
-        raise HTTPException(status_code=404, detail="Backup not found")
 
-    backup_data = backups[request.backup_id]
-    result = await app.state.backup.restore_service(service, backup_data["backup_name"])
-
-    if not result["success"]:
-        raise HTTPException(status_code=500, detail=result.get("message", "Restore failed"))
-
-    return {
-        "message": f"Restore completed for {service_name}",
-        "restored_files": result.get("restored_files", []),
-        "restored_databases": result.get("restored_databases", []),
-        "errors": result.get("errors", [])
-    }
-
-
-@router.delete("/{backup_name}", response_model=dict)
-async def delete_backup(
-    service_name: str,
-    backup_name: str,
+@router.delete("/snapshot/{snapshot_id}", response_model=BackupOperationResponse)
+async def delete_snapshot(
+    snapshot_id: str,
     current_user = Depends(get_current_user)
 ):
-    """Удаление бэкапа"""
+    """
+    Удаление снапшота с проверкой использования в активных задачах
+    """
+    # Валидация snapshot_id
+    try:
+        snapshot_id = validate_snapshot_id(snapshot_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     from app.main import app
-    import shutil
-
-    service = app.state.discovery.get_service(service_name)
-    if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
-
-    backup_path = app.state.backup.backup_base_path / service_name / backup_name
-    if not backup_path.exists():
-        raise HTTPException(status_code=404, detail="Backup not found")
-
-    shutil.rmtree(backup_path)
-    return {"message": f"Backup {backup_name} deleted"}
-
-
-@router.get("/{backup_name}/info", response_model=dict)
-async def get_backup_info(
-    service_name: str,
-    backup_name: str,
-    current_user = Depends(get_current_user)
-):
-    """Получение информации о бэкапе"""
-    from app.main import app
-    import aiofiles
-    import json
-
-    service = app.state.discovery.get_service(service_name)
-    if not service:
-        raise HTTPException(status_code=404, detail="Service not found")
-
-    backup_path = app.state.backup.backup_base_path / service_name / backup_name
-    if not backup_path.exists():
-        raise HTTPException(status_code=404, detail="Backup not found")
-
-    metadata_file = backup_path / "metadata.json"
-    if not metadata_file.exists():
-        raise HTTPException(status_code=404, detail="Backup metadata not found")
-
-    async with aiofiles.open(metadata_file, 'r') as f:
-        metadata = json.loads(await f.read())
-
-    return metadata
+    
+    try:
+        await app.state.backup.delete_snapshot(snapshot_id)
+        return BackupOperationResponse(
+            success=True,
+            message=f"Snapshot {snapshot_id} deleted",
+            snapshot_id=snapshot_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")

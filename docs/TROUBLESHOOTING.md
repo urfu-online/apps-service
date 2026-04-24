@@ -248,62 +248,194 @@
 
 - **Для проблем с TLS:** убедитесь, что домен указывает на IP сервера и порты 80/443 открыты. Для разработки можно отключить автоматический HTTPS в Caddy.
 
-## Проблемы с бэкапами
+## Проблемы с бэкапами (Kopia)
+
+!!! warning "Deprecated"
+    **Устаревшая информация:** В предыдущих версиях платформы использовались Restic и локальные бэкапы через rsync/pg_dump. Начиная с версии 2.0, система перешла на Kopia с дедупликацией и шифрованием. Старые бэкапы в директории `backups/` больше не создаются.
 
 ### Симптом
 - Бэкапы не создаются по расписанию.
-- Ошибки при ручном создании бэкапа.
-- Восстановление не работает.
+- Ошибки при ручном создании бэкапа через UI/API.
+- Восстановление не работает или завершается с ошибкой.
+- Уведомления о статусе бэкапов не приходят.
 
 ### Возможные причины
 
 1. **Неправильная конфигурация `backup` в `service.yml`**
    - Не указаны `paths` или `databases`.
-   - Неверные параметры подключения к БД.
+   - Неверные параметры подключения к БД (контейнер, имя базы).
+   - Отсутствуют обязательные переменные окружения Kopia.
 
-2. **Проблемы с расписанием cron**
-   - Cron-задачи не запускаются внутри контейнера backup.
-   - Неправильный формат `schedule`.
+2. **Проблемы с Kopia репозиторием**
+   - Репозиторий не инициализирован или поврежден.
+   - Неверный пароль репозитория (`KOPIA_REPOSITORY_PASSWORD`).
+   - Недостаточно места в хранилище (диск, S3, SFTP).
 
-3. **Недостаточно места на диске**
-   - Целевая директория для бэкапов переполнена.
+3. **Проблемы с расписанием cron**
+   - Планировщик Master Service не запускает бэкапы по расписанию.
+   - Неправильный формат `schedule` в конфигурации.
 
-4. **Проблемы с rsync/pg_dump**
-   - Отсутствуют необходимые утилиты в контейнере backup.
-   - Нет доступа к исходным файлам или БД.
+4. **Проблемы с доступом к данным**
+   - Master Service не имеет доступа к путям, указанным в `paths`.
+   - Контейнеры баз данных недоступны для дампа.
 
 ### Диагностика
 
-1. Проверьте конфигурацию бэкапа в `service.yml`:
+1. **Проверьте конфигурацию бэкапа в `service.yml`:**
    ```yaml
    backup:
      enabled: true
      schedule: "0 2 * * *"
+     retention_days: 30
      paths:
-       - /app/data
+       - ./data
+     databases:
+       - type: postgres
+         container: db
+         database: myservice
    ```
 
-2. Проверьте логи контейнера backup:
+2. **Проверьте переменные окружения Kopia:**
    ```bash
-   docker logs _core-backup-1 --tail 50
+   docker exec _core-master-1 env | grep KOPIA
+   ```
+   Убедитесь, что установлены `KOPIA_REPOSITORY` и `KOPIA_REPOSITORY_PASSWORD`.
+
+3. **Проверьте статус Kopia репозитория:**
+   ```bash
+   # Внутри контейнера kopia
+   docker exec _core-kopia-1 kopia repository status --password-file <(echo $KOPIA_REPOSITORY_PASSWORD)
    ```
 
-3. Проверьте cron-задачи внутри контейнера:
+4. **Просмотрите список снапшотов:**
    ```bash
-   docker exec _core-backup-1 crontab -l
+   docker exec _core-kopia-1 kopia snapshot list --manifest
    ```
 
-4. Проверьте наличие бэкап-файлов:
+5. **Проверьте логи Master Service:**
    ```bash
-   ls -la backups/
+   docker logs _core-master-1 --tail 100 | grep -i "backup\|kopia"
+   ```
+
+6. **Проверьте логи Kopia:**
+   ```bash
+   docker logs _core-kopia-1 --tail 50
    ```
 
 ### Решения
 
-- **Включите бэкап:** установите `backup.enabled: true` и укажите хотя бы один `path` или `database`.
-- **Проверьте расписание:** используйте корректный cron-формат.
-- **Освободите место:** удалите старые бэкапы вручную.
-- **Установите утилиты:** убедитесь, что в контейнере backup установлены `rsync`, `pg_dump` (если нужно).
+- **Включите и настройте бэкап:** установите `backup.enabled: true`, укажите `paths` и/или `databases`.
+- **Инициализируйте Kopia репозиторий:** если репозиторий не создан, выполните:
+  ```bash
+  docker exec _core-kopia-1 kopia repository create filesystem --path /repository --password $KOPIA_REPOSITORY_PASSWORD
+  ```
+- **Проверьте расписание:** используйте корректный cron-формат (например, `"0 2 * * *"` для ежедневного бэкапа в 02:00).
+- **Освободите место в хранилище:** удалите старые снапшоты через Kopia CLI или увеличьте объем хранилища.
+- **Убедитесь в правах доступа:** Master Service должен иметь доступ на чтение указанных путей (обычно монтируются как volumes).
+
+### Таблица кодов ошибок Kopia CLI
+
+| Код ошибки | Описание | Возможное решение |
+|------------|----------|-------------------|
+| `ERR_REPOSITORY_NOT_FOUND` | Репозиторий не найден | Инициализировать репозиторий (`kopia repository create`) |
+| `ERR_INVALID_PASSWORD` | Неверный пароль репозитория | Проверить переменную `KOPIA_REPOSITORY_PASSWORD` |
+| `ERR_STORAGE_READONLY` | Хранилище доступно только для чтения | Проверить права на запись в хранилище (диск, S3) |
+| `ERR_NOT_CONNECTED` | Нет подключения к Kopia server | Проверить запущен ли контейнер `kopia` и доступность порта 51515 |
+| `ERR_SNAPSHOT_FAILED` | Ошибка создания снапшота | Проверить доступ к исходным файлам, достаточно ли места |
+| `ERR_MAINTENANCE_NEEDED` | Требуется обслуживание репозитория | Выполнить `kopia maintenance run` |
+
+### Команды Kopia для устранения неполадок
+
+```bash
+# Просмотр всех снапшотов с деталями
+docker exec _core-kopia-1 kopia snapshot list --all --details
+
+# Проверка целостности репозитория
+docker exec _core-kopia-1 kopia repository verify --password-file <(echo $KOPIA_REPOSITORY_PASSWORD)
+
+# Запуск обслуживания (дедупликация, очистка)
+docker exec _core-kopia-1 kopia maintenance run
+
+# Просмотр политик хранения для сервиса
+docker exec _core-kopia-1 kopia policy show --host my-service
+
+# Удаление повреждённого снапшота
+docker exec _core-kopia-1 kopia snapshot delete k1234567890abcdef
+```
+
+## Уведомления не приходят
+
+### Симптом
+- Уведомления о статусе бэкапов, здоровье сервисов или деплоях не приходят.
+- В логах Master Service есть ошибки отправки уведомлений.
+
+### Возможные причины
+
+1. **Неправильная конфигурация ntfy.sh/Apprise**
+   - Не указаны `NTFY_TOPIC` или `APPRISE_URLS`.
+   - Неверный формат URL Apprise.
+   - Self-hosted ntfy недоступен.
+
+2. **Проблемы с сетью**
+   - Нет исходящего подключения к публичному ntfy.sh или другим сервисам уведомлений.
+   - Брандмауэр блокирует исходящие HTTP-запросы.
+
+3. **Ошибки аутентификации**
+   - Неверные учетные данные для сервисов уведомлений (токены, пароли).
+   - Истекшие токены (Telegram, Slack и др.).
+
+### Диагностика
+
+1. **Проверьте переменные окружения:**
+   ```bash
+   docker exec _core-master-1 env | grep -E "NTFY_|APPRISE"
+   ```
+
+2. **Протестируйте отправку вручную через curl (для ntfy.sh):**
+   ```bash
+   curl -d "Test notification from platform" https://ntfy.sh/your-topic
+   ```
+   Замените `your-topic` на значение из `NTFY_TOPIC`.
+
+3. **Проверьте логи AppriseNotifier:**
+   ```bash
+   docker logs _core-master-1 --tail 50 | grep -i "apprise\|notify\|notification"
+   ```
+
+4. **Протестируйте Apprise через CLI (если установлен):**
+   ```bash
+   docker exec _core-master-1 apprise -vv -t "Test" -b "Body" "ntfy:///your-topic"
+   ```
+
+### Решения
+
+- **Настройте переменные окружения:** укажите корректные `NTFY_TOPIC` и `NTFY_URL` или `APPRISE_URLS`.
+- **Проверьте сетевую доступность:** убедитесь, что контейнер Master Service может выходить в интернет (для публичных сервисов) или доступаться к внутреннему серверу уведомлений.
+- **Обновите учетные данные:** проверьте токены, пароли, chat IDs в URL Apprise.
+- **Используйте fallback каналы:** настройте несколько каналов уведомлений в `APPRISE_URLS` через запятую.
+
+### Примеры корректных конфигураций
+
+**ntfy.sh (публичный):**
+```env
+NTFY_TOPIC=platform-backups
+NTFY_URL=https://ntfy.sh
+```
+
+**Self-hosted ntfy с аутентификацией:**
+```env
+NTFY_TOPIC=alerts
+NTFY_URL=https://ntfy.internal.example.com
+NTFY_USERNAME=admin
+NTFY_PASSWORD=secure_password
+```
+
+**Apprise с несколькими каналами:**
+```env
+APPRISE_URLS="ntfy://backup-bot:password@ntfy.example.com/backups,mailto://user:pass@smtp.example.com/?to=admin@example.com,tgram://bottoken/ChatID"
+```
+
+## Проблемы с UI (NiceGUI)
 
 ## Проблемы с UI (NiceGUI)
 

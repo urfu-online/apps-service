@@ -2,6 +2,7 @@
 CLI утилита для управления платформой Platform Master Service
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import docker
 import requests
@@ -20,6 +21,7 @@ import yaml
 from rich.console import Console
 from rich.table import Table
 
+from apps_platform.api_client import APIClient, get_api_client
 from apps_platform.caddy_parser import parse_caddy_config
 
 app = typer.Typer(
@@ -881,10 +883,26 @@ def logs(
     compose_cmd(service_path, *args)
 
 
-@app.command()
-def backup(service: str = typer.Argument(..., help="Имя сервиса")) -> None:
-    """Создать бэкап сервиса."""
-    service_path = get_service_or_fail(get_services(), service)
+# Группа команд для управления бэкапами Kopia
+backup_app = typer.Typer(name="backup", help="Управление бэкапами Kopia")
+app.add_typer(backup_app)
+
+
+@backup_app.callback(invoke_without_command=True)
+def backup_callback(
+    ctx: typer.Context,
+    service: str = typer.Argument(..., help="Имя сервиса (устаревший синтаксис)"),
+):
+    """Создать бэкап сервиса (устаревший синтаксис)."""
+    if ctx.invoked_subcommand is None:
+        console.print("[yellow]⚠️  Команда 'platform backup' устарела, используйте 'platform backup create'[/yellow]")
+        asyncio.run(_backup_create_async(service))
+
+
+async def _ensure_backup_enabled(service_name: str) -> None:
+    """Проверка, что бэкапы включены в service.yml."""
+    services = get_services()
+    service_path = get_service_or_fail(services, service_name)
     service_yml_path = service_path / "service.yml"
 
     if not service_yml_path.exists():
@@ -899,24 +917,124 @@ def backup(service: str = typer.Argument(..., help="Имя сервиса")) -> 
         console.print("[yellow]⚠️  Бэкапы не включены в service.yml[/yellow]")
         raise typer.Exit(1)
 
-    config = get_config()
-    master_url = config.get("master_url", "http://localhost:8001")
+
+@backup_app.command("create")
+def backup_create(
+    service: str = typer.Argument(..., help="Имя сервиса"),
+) -> None:
+    """Создать бэкап сервиса (Kopia)."""
+    asyncio.run(_backup_create_async(service))
+
+
+async def _backup_create_async(service_name: str) -> None:
+    """Асинхронная реализация создания бэкапа."""
+    await _ensure_backup_enabled(service_name)
 
     try:
-        response = requests.post(
-            f"{master_url}/api/backups/service/{service}/backup",
-            json={"reason": "manual"},
-            timeout=REQUEST_TIMEOUT,
-        )
-        if response.status_code == 200:
-            result = response.json()
-            console.print(f"[green]✅ Бэкап создан: {result.get('name', 'N/A')}[/green]")
-        else:
-            console.print(f"[red]❌ API вернул статус {response.status_code}[/red]")
-            raise typer.Exit(1)
-    except requests.exceptions.ConnectionError as e:
-        console.print("[red]❌ Master Service недоступен. Запустите бэкап вручную через restic.[/red]")
+        async with get_api_client() as client:
+            result = await client.create_backup(service_name)
+            console.print(f"[green]✅ Бэкап создан: {result.get('snapshot_id', 'N/A')}[/green]")
+            if "message" in result:
+                console.print(f"[blue]ℹ️  {result['message']}[/blue]")
+    except Exception as e:
+        console.print(f"[red]❌ Ошибка: {e}[/red]")
         raise typer.Exit(1) from e
+
+
+@backup_app.command("list")
+def backup_list(
+    service: str = typer.Argument(..., help="Имя сервиса"),
+) -> None:
+    """Показать список снапшотов сервиса."""
+    asyncio.run(_backup_list_async(service))
+
+
+async def _backup_list_async(service_name: str) -> None:
+    """Асинхронная реализация списка снапшотов."""
+    await _ensure_backup_enabled(service_name)
+
+    try:
+        async with get_api_client() as client:
+            snapshots = await client.list_backups(service_name)
+            if not snapshots:
+                console.print("[yellow]⚠️  Снапшотов не найдено[/yellow]")
+                return
+
+            table = Table(title=f"Снапшоты сервиса {service_name}")
+            table.add_column("ID", style="cyan")
+            table.add_column("Создан", style="magenta")
+            table.add_column("Размер", style="blue")
+            table.add_column("Статус", style="yellow")
+
+            for snap in snapshots:
+                snapshot_id = snap.get("snapshot_id", "N/A")
+                created_at = snap.get("created_at", "N/A")
+                size_bytes = snap.get("size_bytes", 0)
+                status = snap.get("status", "unknown")
+
+                # Форматирование размера
+                if size_bytes >= 1024 ** 3:
+                    size_str = f"{size_bytes / (1024 ** 3):.2f} GB"
+                elif size_bytes >= 1024 ** 2:
+                    size_str = f"{size_bytes / (1024 ** 2):.2f} MB"
+                elif size_bytes >= 1024:
+                    size_str = f"{size_bytes / 1024:.2f} KB"
+                else:
+                    size_str = f"{size_bytes} B"
+
+                table.add_row(snapshot_id, created_at, size_str, status)
+
+            console.print(table)
+    except Exception as e:
+        console.print(f"[red]❌ Ошибка: {e}[/red]")
+        raise typer.Exit(1) from e
+
+
+@backup_app.command("restore")
+def backup_restore(
+    service: str = typer.Argument(..., help="Имя сервиса"),
+    snapshot_id: str = typer.Argument(..., help="ID снапшота"),
+    target: str = typer.Option(None, "--target", "-t", help="Целевой путь (опционально)"),
+    force: bool = typer.Option(False, "--force", "-f", help="Принудительное восстановление"),
+) -> None:
+    """Восстановить снапшот сервиса."""
+    asyncio.run(_backup_restore_async(service, snapshot_id, target, force))
+
+
+async def _backup_restore_async(
+    service_name: str,
+    snapshot_id: str,
+    target: Optional[str],
+    force: bool,
+) -> None:
+    """Асинхронная реализация восстановления."""
+    await _ensure_backup_enabled(service_name)
+
+    try:
+        async with get_api_client() as client:
+            result = await client.restore_backup(service_name, snapshot_id, target, force)
+            console.print(f"[green]✅ Восстановление запущено: {result.get('operation_id', 'N/A')}[/green]")
+            if "message" in result:
+                console.print(f"[blue]ℹ️  {result['message']}[/blue]")
+    except Exception as e:
+        console.print(f"[red]❌ Ошибка: {e}[/red]")
+        raise typer.Exit(1) from e
+
+
+@backup_app.command("delete")
+def backup_delete(
+    snapshot_id: str = typer.Argument(..., help="ID снапшота"),
+) -> None:
+    """Удалить снапшот."""
+    asyncio.run(_backup_delete_async(snapshot_id))
+
+
+async def _backup_delete_async(snapshot_id: str) -> None:
+    """Асинхронная реализация удаления снапшота."""
+    try:
+        async with get_api_client() as client:
+            result = await client.delete_backup(snapshot_id)
+            console.print(f"[green]✅ Снапшот удалён: {result.get('message', 'Успешно')}[/green]")
     except Exception as e:
         console.print(f"[red]❌ Ошибка: {e}[/red]")
         raise typer.Exit(1) from e

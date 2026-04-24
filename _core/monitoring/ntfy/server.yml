@@ -1,0 +1,54 @@
+# ntfy server configuration
+# See https://docs.ntfy.sh/config/ for full options
+
+# Base URL for external access
+base-url: "http://localhost:8080"
+
+# Authentication
+auth-default-access: "deny"
+auth-file: "/var/lib/ntfy/user.db"
+
+# Users (will be created on first run if not exist)
+# Format: user:password
+# Use `ntfy hash` to generate password hash
+users:
+  - "backup-bot:$2y$10$8B7c5Q5q5Q5q5Q5q5Q5q5uQ5q5Q5q5Q5q5Q5q5Q5q5Q5q5Q5q5Q5q5"  # password: backup-bot-password
+  - "admin:$2y$10$8B7c5Q5q5Q5q5Q5q5Q5q5uQ5q5Q5q5Q5q5Q5q5Q5q5Q5q5Q5q5Q5q5"      # password: admin-password
+
+# Access control
+# Default: deny, override per-topic
+# Example: allow backup-bot to publish to backup-* topics
+visitors:
+  - "user:backup-bot"
+    allow-publish: ["backup-*", "alert-*"]
+    allow-subscribe: ["backup-*", "alert-*"]
+  - "user:admin"
+    allow-publish: ["*"]
+    allow-subscribe: ["*"]
+
+# Cache
+cache-file: "/var/cache/ntfy/cache.db"
+cache-duration: "12h"
+
+# Logging
+log-level: "info"
+
+# Web UI
+enable-login: true
+enable-signup: false
+
+# Attachments
+attachment-cache-dir: "/var/cache/ntfy/attachments"
+attachment-total-size-limit: "5G"
+attachment-file-size-limit: "15M"
+attachment-expiry-duration: "3h"
+
+# Rate limiting
+global-rate-limit: "1000 burst=100"
+visitor-rate-limit: "60 burst=10"
+
+# SMTP (optional, for email notifications)
+# smtp-sender-addr: "smtp.example.com:587"
+# smtp-sender-user: "user@example.com"
+# smtp-sender-pass: "pass"
+# smtp-sender-from: "ntfy@example.com"

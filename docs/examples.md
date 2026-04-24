@@ -36,9 +36,14 @@ health:
 backup:
   enabled: true
   schedule: "0 3 * * *"
-  retention: 30
+  retention_days: 30
   paths:
     - ./public
+  kopia_policy:
+    keep-daily: 7
+    keep-weekly: 4
+    keep-monthly: 6
+  storage_type: filesystem
 
 ```
 
@@ -83,15 +88,16 @@ resources:
 backup:
   enabled: true
   schedule: "0 2 * * *"
-  retention: 7
+  retention_days: 7
   databases:
     - type: postgres
       container: db
       database: users
-
-  labels:
-    - service
-    - level
+  kopia_policy:
+    keep-daily: 7
+    keep-weekly: 4
+    keep-monthly: 6
+  storage_type: filesystem
 
 dependencies:
   services:

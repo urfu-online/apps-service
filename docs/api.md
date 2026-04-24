@@ -213,15 +213,16 @@ POST /backups/service/{service_name}/backup
 **Пример ответа:**
 ```json
 {
-  "id": 0,
-  "service_id": 0,
-  "name": "my-service_20230101_100000",
+  "snapshot_id": "k1234567890abcdef",
+  "service_name": "my-service",
   "timestamp": "2023-01-01T10:00:00Z",
-  "size": null,
+  "size_bytes": 10485760,
   "status": "completed",
   "reason": "manual"
 }
 ```
+
+**Примечание:** В ответе возвращается `snapshot_id` — идентификатор снапшота Kopia, который можно использовать для восстановления или удаления. Поле `size_bytes` указывает размер бэкапа в байтах.
 
 ### Получение списка бэкапов
 
@@ -237,16 +238,17 @@ GET /backups/service/{service_name}
 ```json
 [
   {
-    "id": 0,
-    "service_id": 0,
-    "name": "my-service_20230101_100000",
+    "snapshot_id": "k1234567890abcdef",
+    "service_name": "my-service",
     "timestamp": "2023-01-01T10:00:00Z",
-    "size": null,
+    "size_bytes": 10485760,
     "status": "completed",
     "reason": "manual"
   }
 ]
 ```
+
+**Примечание:** Бэкапы хранятся в Kopia репозитории. Поле `snapshot_id` используется для операций восстановления и удаления.
 
 ### Восстановление из бэкапа
 
@@ -257,7 +259,7 @@ POST /backups/service/{service_name}/restore
 **Тело запроса:**
 ```json
 {
-  "backup_id": 1
+  "snapshot_id": "k1234567890abcdef"
 }
 ```
 
@@ -265,9 +267,12 @@ POST /backups/service/{service_name}/restore
 ```json
 {
   "message": "Restore scheduled for service my-service",
-  "backup_id": 1
+  "snapshot_id": "k1234567890abcdef",
+  "status": "scheduled"
 }
 ```
+
+**Примечание:** Для восстановления используется идентификатор снапшота Kopia (`snapshot_id`), полученный из списка бэкапов или ответа создания бэкапа.
 
 ## 6. Эндпоинты для проверки состояния
 

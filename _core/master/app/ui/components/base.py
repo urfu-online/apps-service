@@ -4,23 +4,38 @@ from typing import Callable, Optional
 
 
 def create_header(title: str = "🚀 Platform Manager", show_refresh: bool = True,
-                  on_refresh: Optional[Callable] = None) -> None:
+                  on_refresh: Optional[Callable] = None, show_navigation: bool = True) -> None:
     """Создает стандартный заголовок страницы.
     
     Args:
         title: Заголовок страницы
         show_refresh: Показывать кнопку обновления
         on_refresh: Callback при нажатии на refresh
+        show_navigation: Показывать навигационное меню
     """
     with ui.header().classes('w-full px-6 py-3'):
-        with ui.row().classes('w-full items-center'):
-            ui.label(title).classes('text-h5 font-medium')
-            ui.space()
-            with ui.row().classes('gap-2'):
-                if show_refresh:
-                    refresh_action = on_refresh if on_refresh else lambda: ui.navigate.reload()
-                    ui.button(icon='refresh', on_click=refresh_action) \
-                        .props('flat dense round').tooltip('Обновить')
+        with ui.column().classes('w-full'):
+            # Верхняя строка: заголовок и кнопки
+            with ui.row().classes('w-full items-center'):
+                ui.label(title).classes('text-h5 font-medium')
+                ui.space()
+                with ui.row().classes('gap-2'):
+                    if show_refresh:
+                        refresh_action = on_refresh if on_refresh else lambda: ui.navigate.reload()
+                        ui.button(icon='refresh', on_click=refresh_action) \
+                            .props('flat dense round').tooltip('Обновить')
+            
+            # Навигационная панель
+            if show_navigation:
+                with ui.row().classes('w-full mt-2 gap-1'):
+                    ui.button('Главная', icon='home', on_click=lambda: ui.navigate.to('/')) \
+                        .props('flat dense').classes('text-capitalize')
+                    ui.button('Сервисы', icon='apps', on_click=lambda: ui.navigate.to('/services')) \
+                        .props('flat dense').classes('text-capitalize')
+                    ui.button('Логи', icon='description', on_click=lambda: ui.navigate.to('/logs')) \
+                        .props('flat dense').classes('text-capitalize')
+                    ui.button('Бэкапы', icon='backup', on_click=lambda: ui.navigate.to('/backups')) \
+                        .props('flat dense').classes('text-capitalize')
 
 
 def create_page_title(title: str, subtitle: Optional[str] = None) -> None:

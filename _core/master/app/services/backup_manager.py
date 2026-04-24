@@ -7,6 +7,7 @@ import logging
 import aiofiles
 from croniter import croniter
 import os
+import warnings
 
 from app.models.service import Service
 from app.services.notifier import TelegramNotifier
@@ -16,8 +17,37 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+def deprecated(message: str = ""):
+    """Декоратор для пометки устаревших классов и методов."""
+    def decorator(cls_or_func):
+        if isinstance(cls_or_func, type):
+            # Декорируем класс
+            original_init = cls_or_func.__init__
+            def new_init(self, *args, **kwargs):
+                warnings.warn(
+                    f"{cls_or_func.__name__} is deprecated. {message}",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+                original_init(self, *args, **kwargs)
+            cls_or_func.__init__ = new_init
+            return cls_or_func
+        else:
+            # Декорируем функцию/метод
+            def wrapper(*args, **kwargs):
+                warnings.warn(
+                    f"{cls_or_func.__name__} is deprecated. {message}",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+                return cls_or_func(*args, **kwargs)
+            return wrapper
+    return decorator
+
+
+@deprecated("Use KopiaBackupManager instead for Kopia-based backups.")
 class BackupManager:
-    """Управление резервным копированием"""
+    """Управление резервным копированием (устаревшее, используйте KopiaBackupManager)"""
     
     def __init__(self, notifier: TelegramNotifier):
         self.notifier = notifier

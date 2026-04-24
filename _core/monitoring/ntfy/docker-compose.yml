@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  ntfy:
+    image: binwiederhier/ntfy
+    container_name: ntfy
+    restart: unless-stopped
+    volumes:
+      - ./server.yml:/etc/ntfy/server.yml:ro
+      - ./cache:/var/cache/ntfy
+      - ./data:/var/lib/ntfy
+    environment:
+      - NTFY_SERVER_CONFIG=/etc/ntfy/server.yml
+    ports:
+      - "8080:80"
+    networks:
+      - apps-service-net
+
+networks:
+  apps-service-net:
+    external: true
+    name: apps-service-net

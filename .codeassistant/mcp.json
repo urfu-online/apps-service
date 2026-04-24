@@ -7,7 +7,46 @@
         "search_apps_service_documentation",
         "fetch_apps_service_documentation"
       ],
+      "alwaysAllow": [],
+      "disabled": true
+    },
+    "git": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--mount",
+        "type=bind,src=/projects/apps-service-opus/,dst=/workspace",
+        "mcp/git"
+      ],
+      "disabledTools": [
+        "git_diff_staged",
+        "git_diff_unstaged",
+        "git_reset"
+      ],
       "alwaysAllow": []
+    },
+    "filesystem": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--mount",
+        "type=bind,src=/projects/apps-service-opus,dst=/projects",
+        "mcp/filesystem",
+        "/projects"
+      ],
+      "disabledTools": [
+        "get_file_info",
+        "list_allowed_directories"
+      ],
+      "alwaysAllow": [
+        "create_directory"
+      ]
     }
   }
 }

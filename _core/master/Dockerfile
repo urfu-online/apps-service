@@ -15,7 +15,15 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     curl \
+    rsync \
     && rm -rf /var/lib/apt/lists/*
+
+# Установка Kopia CLI из GitHub releases
+RUN KOPIA_VERSION=$(curl -s https://api.github.com/repos/kopia/kopia/releases/latest | grep '"tag_name":' | sed -E 's/.*"v([^"]+)".*/\1/') && \
+    curl -L -o /tmp/kopia.deb "https://github.com/kopia/kopia/releases/download/v${KOPIA_VERSION}/kopia_${KOPIA_VERSION}_linux_amd64.deb" && \
+    dpkg -i /tmp/kopia.deb && \
+    rm /tmp/kopia.deb && \
+    kopia --version
 
 # Установка Poetry (как root, в /usr/local)
 RUN pip install --upgrade pip && pip install poetry
