@@ -1,4 +1,5 @@
 """Страница просмотра логов."""
+import asyncio
 from nicegui import ui
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
@@ -27,6 +28,14 @@ class LogsPage:
         self.search_input: Optional[ui.input] = None
         self.auto_scroll: bool = True
         self.logs_cache: List[str] = []
+        # Phase 4: Loading, export, and auto-refresh
+        self.loading: bool = False
+        self.loading_spinner: Optional[ui.spinner] = None
+        self.auto_refresh: bool = False
+        self.refresh_interval: int = 5  # seconds
+        self.refresh_timer: Optional[asyncio.Task] = None
+        self.export_button: Optional[ui.button] = None
+        self.auto_refresh_toggle: Optional[ui.toggle] = None
 
     async def render(self):
         """Рендер страницы логов."""
@@ -69,10 +78,25 @@ class LogsPage:
 
                 # Кнопки управления
                 with ui.row().classes('gap-2'):
+                    # Phase 4: Loading spinner
+                    self.loading_spinner = ui.spinner(size='sm').classes('hidden')
+                    
                     ui.button('Загрузить', icon='refresh', on_click=lambda: self._load_logs()) \
                         .props('unelevated')
                     ui.button('Очистить', icon='clear', on_click=lambda: self._clear_logs()) \
                         .props('flat')
+                    
+                    # Phase 4: Export button
+                    self.export_button = ui.button('Экспорт', icon='download', on_click=lambda: self._export_logs()) \
+                        .props('flat')
+                    
+                    # Phase 4: Auto-refresh toggle
+                    self.auto_refresh_toggle = ui.toggle(
+                        {False: 'Авто', True: 'Авто'},
+                        value=False,
+                        on_change=lambda e: self._toggle_auto_refresh(e.value)
+                    ).props('dense flat round').classes('w-20')
+                    
                     ui.button(icon='arrow_downward', on_click=self._toggle_auto_scroll) \
                         .props('flat round').tooltip('Автопрокрутка')
 
@@ -109,13 +133,17 @@ class LogsPage:
             ui.notify(f'Сервис {service_name} не найден', type='negative')
             return
 
+        # Phase 4: Show loading spinner
+        self.loading = True
+        if self.loading_spinner:
+            self.loading_spinner.classes.remove('hidden')
+        if self.export_button:
+            self.export_button.props('disable')
+        
         # Получаем период
         time_range = self.time_range_select.value if self.time_range_select else '1h'
         since = self._get_since_time(time_range)
 
-        # Загружаем логи
-        ui.notify('Загрузка логов...', type='info', timeout=1000)
-        
         try:
             logs = await app.state.log_manager.get_service_logs(
                 service,
@@ -132,6 +160,69 @@ class LogsPage:
         except Exception as e:
             ui.notify(f'Ошибка загрузки логов: {e}', type='negative')
             self.status_label.set_text('Ошибка загрузки')
+        finally:
+            # Phase 4: Hide loading spinner
+            self.loading = False
+            if self.loading_spinner:
+                self.loading_spinner.classes.add('hidden')
+            if self.export_button:
+                self.export_button.props('remove', 'disable')
+
+    async def _export_logs(self):
+        """Экспорт логов через API."""
+        from app.main import app
+        import json
+
+        service_name = self.service_select.value if self.service_select else None
+        if not service_name:
+            ui.notify('Выберите сервис для экспорта', type='warning')
+            return
+
+        try:
+            # Call the export API endpoint
+            async with app.state.http_client.get(
+                f'/api/logs/service/{service_name}/export'
+            ) as response:
+                if response.status_code == 200:
+                    # Get the file content and trigger download
+                    content = await response.read()
+                    # Create a blob and trigger download in browser
+                    ui.notify('Экспорт логов завершён', type='positive')
+                else:
+                    error_text = await response.text()
+                    ui.notify(f'Ошибка экспорта: {error_text}', type='negative')
+        except Exception as e:
+            ui.notify(f'Ошибка экспорта: {e}', type='negative')
+
+    def _toggle_auto_refresh(self, enabled: bool):
+        """Toggle auto-refresh polling."""
+        self.auto_refresh = enabled
+        
+        if enabled:
+            # Start the polling timer
+            self._start_auto_refresh()
+            ui.notify(f'Автообновление включено ({self.refresh_interval}с)', type='info', timeout=1500)
+        else:
+            # Stop the polling timer
+            self._stop_auto_refresh()
+            ui.notify('Автообновление выключено', type='info', timeout=1500)
+
+    def _start_auto_refresh(self):
+        """Start auto-refresh polling timer."""
+        self._stop_auto_refresh()  # Ensure any existing timer is stopped
+        
+        async def poll():
+            while self.auto_refresh:
+                await self._load_logs()
+                await asyncio.sleep(self.refresh_interval)
+        
+        self.refresh_timer = asyncio.create_task(poll())
+
+    def _stop_auto_refresh(self):
+        """Stop auto-refresh polling timer."""
+        if self.refresh_timer:
+            self.refresh_timer.cancel()
+            self.refresh_timer = None
 
     def _display_logs(self):
         """Отображение логов."""
