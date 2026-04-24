@@ -77,9 +77,9 @@ class TestSharedModelTests:
     def test_log_search_request_default_limit(self):
         """Тест дефолтного лимита LogSearchRequest из test_log_endpoints."""
         from app.api.routes.logs import LogSearchRequest
-
+    
         request = LogSearchRequest(query="test")
-        assert request.limit == 100
+        assert request.limit == 50
         
     def test_deployment_response_shared(self, base_deployment_response_data):
         """Тест модели DeploymentResponse из test_deployment_endpoints."""

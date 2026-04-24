@@ -82,6 +82,13 @@ class Settings(BaseSettings):
         "change-me-in-production", description="Секретный ключ для подписи cookie"
     )
 
+    # Настройки логов (согласно критическим правкам плана LogManager)
+    LOG_CACHE_TTL: int = Field(30, description="Время жизни кэша логов в секундах")
+    LOG_CACHE_SIZE: int = Field(5000, description="Размер кэша логов (увеличено для отладки)")
+    LOG_STORAGE_PATH: str = Field("./.logs_cache", description="Путь для персистентного хранения логов")
+    LOG_ENABLE_PERSISTENCE: bool = Field(False, description="Включить сохранение логов в файлы")
+    DATA_DIR: str = Field("/data", description="Базовая директория для volume-mounted путей (экспорт)")
+
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
     def parse_origins(cls, v):
@@ -97,6 +104,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra='ignore',
     )
 
 

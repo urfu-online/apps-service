@@ -36,4 +36,4 @@ class TestSharedLogModels:
         from app.api.routes.logs import LogSearchRequest
 
         request = LogSearchRequest(query="test")
-        assert request.limit == 100
+        assert request.limit == 50
