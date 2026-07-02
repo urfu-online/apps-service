@@ -1,15 +1,16 @@
 """Тесты для BackupAPIClient (aiohttp + tenacity)."""
 
-import asyncio
-from typing import Dict, Any, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
-import aiohttp
-from aiohttp import ClientSession, ClientTimeout
-from tenacity import RetryError
+from typing import Any
+from unittest.mock import AsyncMock, patch
 
-from apps_platform.api_client import APIClient as BackupAPIClient, APIClientError
-from typing import Any, Dict
+import pytest
+from aiohttp import ClientSession, ClientTimeout
+
+from apps_platform.api_client import APIClient as BackupAPIClient
+from apps_platform.api_client import APIClientError
+
+# APIClient возвращает dict[str, Any]; алиас для читаемости legacy-тестов
+BackupResponse = dict
 
 
 class TestBackupAPIClient:
@@ -32,7 +33,7 @@ class TestBackupAPIClient:
         return client
 
     @pytest.fixture
-    def backup_response_success(self) -> Dict[str, Any]:
+    def backup_response_success(self) -> dict[str, Any]:
         """Успешный ответ бэкапа."""
         return {
             "snapshot_id": "k123456789",
@@ -42,7 +43,7 @@ class TestBackupAPIClient:
         }
 
     @pytest.fixture
-    def backup_response_dry_run(self) -> Dict[str, Any]:
+    def backup_response_dry_run(self) -> dict[str, Any]:
         """Ответ dry_run режима."""
         return {
             "snapshot_id": None,
@@ -52,7 +53,7 @@ class TestBackupAPIClient:
         }
 
     @pytest.fixture
-    def backup_response_disabled(self) -> Dict[str, Any]:
+    def backup_response_disabled(self) -> dict[str, Any]:
         """Ответ с отключённым бэкапом."""
         return {
             "snapshot_id": None,
@@ -62,7 +63,7 @@ class TestBackupAPIClient:
         }
 
     @pytest.fixture
-    def backup_response_error(self) -> Dict[str, Any]:
+    def backup_response_error(self) -> dict[str, Any]:
         """Ответ с ошибкой."""
         return {
             "snapshot_id": None,
@@ -86,7 +87,7 @@ class TestBackupAPIClient:
 
     @pytest.mark.asyncio
     async def test_request_success(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock, backup_response_success: Dict[str, Any]
+        self, api_client: BackupAPIClient, mock_session: AsyncMock, backup_response_success: dict[str, Any]
     ) -> None:
         """Успешный запрос возвращает данные."""
         mock_response = AsyncMock()
@@ -109,9 +110,7 @@ class TestBackupAPIClient:
         )
 
     @pytest.mark.asyncio
-    async def test_request_with_json_payload(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock
-    ) -> None:
+    async def test_request_with_json_payload(self, api_client: BackupAPIClient, mock_session: AsyncMock) -> None:
         """Запрос с JSON payload корректно передаётся."""
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -128,9 +127,7 @@ class TestBackupAPIClient:
         assert call_kwargs["json"] == payload
 
     @pytest.mark.asyncio
-    async def test_request_4xx_raises_immediately(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock
-    ) -> None:
+    async def test_request_4xx_raises_immediately(self, api_client: BackupAPIClient, mock_session: AsyncMock) -> None:
         """4xx код → немедленный raise APIClientError (без ретраев)."""
         mock_response = AsyncMock()
         mock_response.status = 404
@@ -149,9 +146,7 @@ class TestBackupAPIClient:
         assert mock_session.request.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_request_5xx_retries_3_times(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock
-    ) -> None:
+    async def test_request_5xx_retries_3_times(self, api_client: BackupAPIClient, mock_session: AsyncMock) -> None:
         """5xx код → 3 попытки с backoff."""
         mock_response = AsyncMock()
         mock_response.status = 503
@@ -169,11 +164,9 @@ class TestBackupAPIClient:
         assert mock_session.request.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_request_timeout_retry(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock
-    ) -> None:
+    async def test_request_timeout_retry(self, api_client: BackupAPIClient, mock_session: AsyncMock) -> None:
         """TimeoutError → ретрай."""
-        mock_session.request.side_effect = asyncio.TimeoutError("Connection timeout")
+        mock_session.request.side_effect = TimeoutError("Connection timeout")
 
         with pytest.raises(APIClientError) as exc_info:
             await api_client.request("GET", "/api/backups/test")
@@ -184,7 +177,7 @@ class TestBackupAPIClient:
 
     @pytest.mark.asyncio
     async def test_backup_create_success(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock, backup_response_success: Dict[str, Any]
+        self, api_client: BackupAPIClient, mock_session: AsyncMock, backup_response_success: dict[str, Any]
     ) -> None:
         """Создание бэкапа возвращает BackupResponse."""
         mock_response = AsyncMock()
@@ -212,7 +205,7 @@ class TestBackupAPIClient:
 
     @pytest.mark.asyncio
     async def test_backup_create_dry_run(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock, backup_response_dry_run: Dict[str, Any]
+        self, api_client: BackupAPIClient, mock_session: AsyncMock, backup_response_dry_run: dict[str, Any]
     ) -> None:
         """Создание бэкапа в dry_run режиме."""
         mock_response = AsyncMock()
@@ -240,7 +233,7 @@ class TestBackupAPIClient:
 
     @pytest.mark.asyncio
     async def test_backup_create_disabled(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock, backup_response_disabled: Dict[str, Any]
+        self, api_client: BackupAPIClient, mock_session: AsyncMock, backup_response_disabled: dict[str, Any]
     ) -> None:
         """Создание бэкапа, когда бэкап отключён."""
         mock_response = AsyncMock()
@@ -259,16 +252,16 @@ class TestBackupAPIClient:
         assert not result.dry_run
 
     @pytest.mark.asyncio
-    async def test_list_backups_success(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock
-    ) -> None:
+    async def test_list_backups_success(self, api_client: BackupAPIClient, mock_session: AsyncMock) -> None:
         """Получение списка снапшотов."""
         mock_response = AsyncMock()
         mock_response.status = 200
-        mock_response.json = AsyncMock(return_value=[
-            {"snapshot_id": "k123456789", "created_at": "2024-01-01T12:00:00Z", "size_bytes": 1024 * 1024},
-            {"snapshot_id": "k987654321", "created_at": "2024-01-02T12:00:00Z", "size_bytes": 2048 * 1024},
-        ])
+        mock_response.json = AsyncMock(
+            return_value=[
+                {"snapshot_id": "k123456789", "created_at": "2024-01-01T12:00:00Z", "size_bytes": 1024 * 1024},
+                {"snapshot_id": "k987654321", "created_at": "2024-01-02T12:00:00Z", "size_bytes": 2048 * 1024},
+            ]
+        )
         mock_response.__aenter__.return_value = mock_response
         mock_response.__aexit__.return_value = None
 
@@ -289,9 +282,7 @@ class TestBackupAPIClient:
         )
 
     @pytest.mark.asyncio
-    async def test_list_backups_empty(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock
-    ) -> None:
+    async def test_list_backups_empty(self, api_client: BackupAPIClient, mock_session: AsyncMock) -> None:
         """Получение пустого списка снапшотов."""
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -307,9 +298,7 @@ class TestBackupAPIClient:
         assert len(result) == 0
 
     @pytest.mark.asyncio
-    async def test_restore_backup_with_force(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock
-    ) -> None:
+    async def test_restore_backup_with_force(self, api_client: BackupAPIClient, mock_session: AsyncMock) -> None:
         """Восстановление снапшота с force=true."""
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -332,9 +321,7 @@ class TestBackupAPIClient:
         )
 
     @pytest.mark.asyncio
-    async def test_delete_backup_success(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock
-    ) -> None:
+    async def test_delete_backup_success(self, api_client: BackupAPIClient, mock_session: AsyncMock) -> None:
         """Удаление снапшота."""
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -357,9 +344,7 @@ class TestBackupAPIClient:
         )
 
     @pytest.mark.asyncio
-    async def test_delete_backup_204_no_content(
-        self, api_client: BackupAPIClient, mock_session: AsyncMock
-    ) -> None:
+    async def test_delete_backup_204_no_content(self, api_client: BackupAPIClient, mock_session: AsyncMock) -> None:
         """Удаление снапшота с 204 No Content."""
         mock_response = AsyncMock()
         mock_response.status = 204

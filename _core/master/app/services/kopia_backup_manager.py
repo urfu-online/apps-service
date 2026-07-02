@@ -21,6 +21,15 @@ from app.models.service import Service
 logger = logging.getLogger(__name__)
 
 
+class PathTraversalError(ValueError):
+    """Бросается, когда target для restore выходит за пределы SERVICES_PATH.
+
+    Отдельный подкласс ``ValueError`` (а не строковый матчинг) позволяет
+    маршруту FastAPI явно отличать ошибки валидации (HTTP 400) от ошибок
+    отсутствия записи (HTTP 404).
+    """
+
+
 class KopiaBackupManager:
     """Менеджер резервного копирования на основе Kopia."""
 
@@ -417,8 +426,26 @@ class KopiaBackupManager:
         
         # Определяем целевой путь
         if target is None:
-            # Восстанавливаем в оригинальную директорию сервиса
-            target = f"/projects/apps-service-opus/services/{service.visibility.value}/{service.name}"
+            # Восстанавливаем в оригинальную директорию сервиса.
+            # Путь должен быть выведен из settings.SERVICES_PATH, иначе
+            # в любой non-default deployment guard ниже заблокирует
+            # восстановление. Храним Path в отдельной переменной.
+            from app.config import settings as _settings
+
+            target_path = Path(str(_settings.SERVICES_PATH)) / service.visibility.value / service.name
+            target = str(target_path)
+
+        # Защита от path traversal: target должен находиться внутри SERVICES_PATH
+        from app.config import settings as _settings
+
+        resolved_target = Path(target).resolve()
+        allowed_root = Path(str(_settings.SERVICES_PATH)).resolve()
+        try:
+            resolved_target.relative_to(allowed_root)
+        except ValueError:
+            raise PathTraversalError(
+                f"target must be under {allowed_root}, got {resolved_target}"
+            )
         
         logger.info(f"Restoring snapshot {snapshot_id} for service '{service_name}' to {target}")
         

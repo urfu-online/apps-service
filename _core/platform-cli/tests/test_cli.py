@@ -1,11 +1,14 @@
 """
 Тесты для CLI модуля apps_platform.cli
 """
+
 import os
+from datetime import UTC
 from pathlib import Path
-from unittest.mock import patch, AsyncMock, MagicMock, mock_open
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import yaml
 from click.exceptions import Exit
 from typer.testing import CliRunner
 
@@ -246,15 +249,15 @@ class TestParseComposePortMapping:
     """Тесты парсинга порт-маппинга docker-compose с поддержкой IPv6."""
 
     @pytest.mark.parametrize(
-    "mapping,expected",
-    [
+        "mapping,expected",
+        [
             ("8080:80", 8080),
             ("0.0.0.0:8080:80", 8080),
             ("[::1]:8080:80", 8080),
             ("[2001:db8::1]:12345:80", 12345),
             ("8080:80/tcp", 8080),
             ("::1:8080:80", 8080),
-    ],
+        ],
     )
     def test_parse_supported_formats(self, mapping, expected):
         assert _parse_compose_port_mapping(mapping) == expected
@@ -287,44 +290,42 @@ class TestSslVerifyLogic:
 
 class TestListAvailabilityIntegration:
     def test_list_check_insecure_ignored_in_production(self):
-        with patch.dict(os.environ, {"PLATFORM_ENV": "production"}, clear=False):
-            with patch("apps_platform.cli.get_services") as get_services_mock:
-                get_services_mock.return_value = {"demo": {"path": Path("/tmp/demo"), "type": "public"}}
+        with (
+            patch.dict(os.environ, {"PLATFORM_ENV": "production"}, clear=False),
+            patch("apps_platform.cli.get_services") as get_services_mock,
+            patch("apps_platform.cli._get_all_container_statuses") as statuses_mock,
+            patch("apps_platform.cli._get_actual_service_urls") as urls_mock,
+            patch("apps_platform.cli.requests.get") as get_mock,
+        ):
+            get_services_mock.return_value = {"demo": {"path": Path("/tmp/demo"), "type": "public"}}
+            statuses_mock.return_value = {"demo": "Up 10 seconds"}
+            urls_mock.return_value = ["https://example.com"]
+            get_mock.return_value.status_code = 200
 
-                with patch("apps_platform.cli._get_all_container_statuses") as statuses_mock:
-                    statuses_mock.return_value = {"demo": "Up 10 seconds"}
+            result = runner.invoke(app, ["list", "--check", "--insecure"])
+            assert result.exit_code == 0
 
-                    with patch("apps_platform.cli._get_actual_service_urls") as urls_mock:
-                        urls_mock.return_value = ["https://example.com"]
-
-                        with patch("apps_platform.cli.requests.get") as get_mock:
-                            get_mock.return_value.status_code = 200
-
-                            result = runner.invoke(app, ["list", "--check", "--insecure"])
-                            assert result.exit_code == 0
-
-                            _args, kwargs = get_mock.call_args
-                            assert kwargs["verify"] is True
+            _args, kwargs = get_mock.call_args
+            assert kwargs["verify"] is True
 
     def test_list_check_insecure_disables_verify_in_dev(self):
-        with patch.dict(os.environ, {"PLATFORM_ENV": "development"}, clear=False):
-            with patch("apps_platform.cli.get_services") as get_services_mock:
-                get_services_mock.return_value = {"demo": {"path": Path("/tmp/demo"), "type": "public"}}
+        with (
+            patch.dict(os.environ, {"PLATFORM_ENV": "development"}, clear=False),
+            patch("apps_platform.cli.get_services") as get_services_mock,
+            patch("apps_platform.cli._get_all_container_statuses") as statuses_mock,
+            patch("apps_platform.cli._get_actual_service_urls") as urls_mock,
+            patch("apps_platform.cli.requests.get") as get_mock,
+        ):
+            get_services_mock.return_value = {"demo": {"path": Path("/tmp/demo"), "type": "public"}}
+            statuses_mock.return_value = {"demo": "Up 10 seconds"}
+            urls_mock.return_value = ["https://example.com"]
+            get_mock.return_value.status_code = 200
 
-                with patch("apps_platform.cli._get_all_container_statuses") as statuses_mock:
-                    statuses_mock.return_value = {"demo": "Up 10 seconds"}
+            result = runner.invoke(app, ["list", "--check", "--insecure"])
+            assert result.exit_code == 0
 
-                    with patch("apps_platform.cli._get_actual_service_urls") as urls_mock:
-                        urls_mock.return_value = ["https://example.com"]
-
-                        with patch("apps_platform.cli.requests.get") as get_mock:
-                            get_mock.return_value.status_code = 200
-
-                            result = runner.invoke(app, ["list", "--check", "--insecure"])
-                            assert result.exit_code == 0
-
-                            _args, kwargs = get_mock.call_args
-                            assert kwargs["verify"] is False
+            _args, kwargs = get_mock.call_args
+            assert kwargs["verify"] is False
 
     @pytest.mark.parametrize(
         "mapping",
@@ -431,6 +432,7 @@ class TestBackupCommands:
     ) -> None:
         """backup create <svc> → stdout с ❌ "API error", код 1."""
         from platform_cli.api.backup_client import APIClientError
+
         mock_backup_api_client.create_backup.side_effect = APIClientError("Connection failed", 500)
 
         result = runner.invoke(app, ["backup", "create", "test-service"])
@@ -448,18 +450,19 @@ class TestBackupCommands:
         mock_backup_api_client: AsyncMock,
     ) -> None:
         """backup list <svc> → таблица Rich/текст с данными, код 0."""
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         mock_backup_api_client.list_backups.return_value = [
             {
                 "snapshot_id": "k123456789",
-                "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc).isoformat(),
+                "created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC).isoformat(),
                 "size_bytes": 1024 * 1024,
                 "retention_days": 7,
                 "status": "completed",
             },
             {
                 "snapshot_id": "k987654321",
-                "created_at": datetime(2024, 1, 2, 12, 0, 0, tzinfo=timezone.utc).isoformat(),
+                "created_at": datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC).isoformat(),
                 "size_bytes": 2048 * 1024,
                 "retention_days": 14,
                 "status": "completed",
@@ -501,6 +504,7 @@ class TestBackupCommands:
     ) -> None:
         """backup list <svc> → ошибка API, код 1."""
         from platform_cli.api.backup_client import APIClientError
+
         mock_backup_api_client.list_backups.side_effect = APIClientError("Service unavailable", 503)
 
         result = runner.invoke(app, ["backup", "list", "test-service"])
@@ -593,6 +597,7 @@ class TestBackupCommands:
     ) -> None:
         """Удаление несуществующего снапшота."""
         from platform_cli.api.backup_client import APIClientError
+
         mock_backup_api_client.delete_backup.side_effect = APIClientError("Snapshot not found", 404)
 
         result = runner.invoke(app, ["backup", "delete", "invalid-id"])
@@ -600,6 +605,180 @@ class TestBackupCommands:
         assert result.exit_code == 1
         assert "not found" in result.output.lower() or "404" in result.output or "❌" in result.output
         mock_backup_api_client.delete_backup.assert_called_once_with("invalid-id")
+
+
+class TestDryRun:
+    """Тесты ``--dry-run`` для ``deploy`` и ``new`` (Шаг 10)."""
+
+    def test_deploy_dry_run_does_not_call_subprocess(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``platform deploy mysvc --dry-run`` не вызывает ``subprocess.run``."""
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        services_path = project_root / "services" / "public" / "mysvc"
+        services_path.mkdir(parents=True)
+        (services_path / "docker-compose.yml").write_text("version: '3.8'\n")
+
+        cfg = project_root / ".ops-config.yml"
+        cfg.write_text(yaml.safe_dump({"services_path": "services"}))
+
+        monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
+        from apps_platform.cli import get_config, get_project_root
+        get_project_root.cache_clear()
+        get_config.cache_clear()
+
+        with patch("apps_platform.cli.subprocess.run") as mock_run:
+            result = runner.invoke(app, ["deploy", "mysvc", "--dry-run"])
+
+        assert result.exit_code == 0
+        assert "DRY-RUN" in result.output
+        assert "mysvc" in result.output
+        mock_run.assert_not_called()
+
+    def test_new_dry_run_does_not_create_files(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``platform new mysvc --dry-run`` не создаёт файлы и каталоги."""
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        (project_root / "services").mkdir()
+        (project_root / ".ops-config.yml").write_text(
+            yaml.safe_dump({"services_path": "services"}),
+        )
+
+        monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
+        from apps_platform.cli import get_config, get_project_root
+        get_project_root.cache_clear()
+        get_config.cache_clear()
+
+        result = runner.invoke(app, ["new", "mysvc", "public", "--dry-run"])
+
+        assert result.exit_code == 0
+        assert "DRY-RUN" in result.output
+        target = project_root / "services" / "public" / "mysvc"
+        assert not target.exists()
+
+
+class TestPlatformLock:
+    """Тесты ``platform_lock`` (Шаг 17)."""
+
+    def test_lock_acquired_and_released(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``platform_lock`` захватывает и освобождает блокировку."""
+        from apps_platform.cli import platform_lock
+
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+        with platform_lock():
+            lock_file = tmp_path / "platform-cli.lock"
+            assert lock_file.exists()
+            # Файл-блокировка создаётся с правами 0600
+            mode = lock_file.stat().st_mode & 0o777
+            assert mode == 0o600
+
+        # После выхода блокировка снята — можем захватить снова
+        with platform_lock():
+            pass
+
+    def test_concurrent_lock_fails(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Второй non-blocking ``platform_lock`` → ``typer.Exit(1)``."""
+        from apps_platform import cli as _cli
+        from apps_platform.cli import platform_lock
+
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+
+        with platform_lock():
+            with pytest.raises(_cli.typer.Exit):
+                with platform_lock():
+                    pass  # pragma: no cover
+
+    def test_blocking_lock_waits_until_released(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``blocking=True`` с ``timeout > 0`` ожидает освобождения."""
+        import threading
+        import time
+
+        from apps_platform.cli import platform_lock
+
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+
+        holder_entered = threading.Event()
+        holder_release = threading.Event()
+        second_acquired = threading.Event()
+
+        def hold_lock() -> None:
+            with platform_lock():
+                holder_entered.set()
+                holder_release.wait(timeout=2.0)
+
+        t = threading.Thread(target=hold_lock, daemon=True)
+        t.start()
+        try:
+            assert holder_entered.wait(timeout=2.0), "holder thread did not enter lock"
+
+            # Второй вызов с blocking=True и timeout=2.0 — должен захватить после release
+            def wait_lock() -> None:
+                with platform_lock(blocking=True, timeout=2.0):
+                    second_acquired.set()
+
+            t2 = threading.Thread(target=wait_lock, daemon=True)
+            t2.start()
+            time.sleep(0.2)
+            assert not second_acquired.is_set(), "second acquired too early"
+
+            holder_release.set()
+            t2.join(timeout=2.0)
+            assert second_acquired.is_set(), "second lock did not acquire after release"
+        finally:
+            holder_release.set()
+            t.join(timeout=2.0)
+
+    def test_blocking_lock_times_out(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``blocking=True`` с малым ``timeout`` → ``typer.Exit(1)`` при таймауте."""
+        import threading
+
+        from apps_platform import cli as _cli
+        from apps_platform.cli import platform_lock
+
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+
+        holder_entered = threading.Event()
+        holder_release = threading.Event()
+
+        def hold_lock() -> None:
+            with platform_lock():
+                holder_entered.set()
+                holder_release.wait(timeout=3.0)
+
+        t = threading.Thread(target=hold_lock, daemon=True)
+        t.start()
+        try:
+            assert holder_entered.wait(timeout=2.0)
+
+            with pytest.raises(_cli.typer.Exit):
+                with platform_lock(blocking=True, timeout=0.2):
+                    pass  # pragma: no cover
+        finally:
+            holder_release.set()
+            t.join(timeout=3.0)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional
-from pydantic import BaseModel
+from pathlib import Path
+from pydantic import BaseModel, field_validator
 import re
 from datetime import datetime
 
 from app.core.security import get_current_user
+from app.core.validators import (
+    validate_snapshot_id_field,
+    validate_target_path,
+    validate_service_name_field,
+    raise_400,
+)
+from app.services.kopia_backup_manager import PathTraversalError
 
 router = APIRouter()
 
@@ -21,12 +29,15 @@ class RestoreRequest(BaseModel):
     target: Optional[str] = None
     force: bool = False
 
+    @field_validator("target")
+    @classmethod
+    def _validate_target(cls, v: Optional[str]) -> Optional[str]:
+        return validate_target_path(v)
+
 
 def validate_snapshot_id(snapshot_id: str) -> str:
     """Валидация snapshot_id (формат: k[alphanumeric])."""
-    if not re.match(r'^k[a-zA-Z0-9]+$', snapshot_id):
-        raise ValueError(f"Invalid snapshot_id format: {snapshot_id}. Expected format: k[alphanumeric]")
-    return snapshot_id
+    return validate_snapshot_id_field(snapshot_id)
 
 
 class BackupSnapshotResponse(BaseModel):
@@ -86,6 +97,8 @@ async def create_backup(
         else:
             # Реальный бэкап
             backup_record = await app.state.backup.run_backup(svc)
+            from app.main import incr_metric
+            incr_metric("backup_total")
             return BackupOperationResponse(
                 success=True,
                 message=f"Backup created for service '{svc}'",
@@ -166,12 +179,16 @@ async def restore_backup(
         result = await app.state.backup.restore_snapshot(
             svc, snapshot_id, target=request.target, force=request.force
         )
+        from app.main import incr_metric
+        incr_metric("restore_total")
         return BackupOperationResponse(
             success=True,
             message=f"Restore completed for service '{svc}'",
             snapshot_id=snapshot_id,
             target=result.get("target"),
         )
+    except PathTraversalError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except RuntimeError as e:

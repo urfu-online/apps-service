@@ -107,6 +107,8 @@ platform reload
 ├── Dockerfile            # Для контейнерной версии
 ├── install.sh            # Скрипт установки через pipx
 ├── INSTALL.md            # Подробная документация
+└── docs/
+    └── security-model.md # Модель безопасности (docker.sock, секреты, аудит)
 └── README.md             # Этот файл
 ```
 

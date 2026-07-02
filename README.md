@@ -5,7 +5,13 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-beta-yellow)
 
+![platform-cli CI](https://github.com/Kilo-Org/apps-service-opus/actions/workflows/platform-cli-ci.yml/badge.svg)
+
 Управление сервисами через манифесты. Положил `service.yml` и `docker-compose.yml` — платформа обнаружит сервис, сгенерирует роутинг, начнёт проверять здоровье и бэкапить по расписанию.
+
+## License
+
+[MIT](LICENSE)
 
 ## 📋 Оглавление
 

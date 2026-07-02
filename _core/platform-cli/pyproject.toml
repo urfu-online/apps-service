@@ -18,6 +18,8 @@ dependencies = [
     "docker>=7.0.0",
     "requests>=2.31.0",
     "rich>=13.7.0",
+    "aiohttp>=3.9.0",
+    "tenacity>=8.2.0",
 ]
 
 [project.scripts]
@@ -27,6 +29,8 @@ platform = "apps_platform.cli:main"
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
+    "respx>=0.21.0",
     "black>=24.0.0",
     "ruff>=0.2.0",
 ]
@@ -39,7 +43,16 @@ line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "S", "PIE", "RUF", "ASYNC", "SIM"]
+# RUF001/002/003 — неоднозначные unicode-символы (кириллица/эмодзи в коде проекта)
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+# tests: assert, захардкоженные пароли и временные пути допустимы
+"tests/*" = ["S101", "S105", "S106", "S108"]
+# CLI легитимно вызывает docker через subprocess с частичным путём и читает HostIp
+"apps_platform/cli.py" = ["S603", "S607", "S104"]
+"apps_platform/service_inspection.py" = ["S603", "S607", "S104"]
 
 [tool.black]
 line-length = 120

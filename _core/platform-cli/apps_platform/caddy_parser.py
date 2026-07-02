@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -139,7 +140,8 @@ def parse_caddy_config(service_name: str, caddy_path: Path) -> list[dict[str, An
                 for _ in range(min(close_braces, len(stack))):
                     stack.pop()
 
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("caddy parse skip line: %s", exc)
             continue
 
     return routes
@@ -147,4 +149,3 @@ def parse_caddy_config(service_name: str, caddy_path: Path) -> list[dict[str, An
 
 # Backward-compat alias for older imports.
 _parse_caddy_config = parse_caddy_config
-
