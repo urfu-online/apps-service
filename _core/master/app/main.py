@@ -1,10 +1,13 @@
+import asyncio
+import logging
+import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from nicegui import ui
-import asyncio
-import logging
 
 from app.config import settings
 from app.core.security import KeycloakAuthProvider, BuiltInAuthProvider, set_auth_provider
@@ -29,6 +32,10 @@ logger = logging.getLogger(__name__)
 
 _background_tasks: list[asyncio.Task] = []
 
+# Таймаут graceful shutdown: 10 секунд на остановку всех воркеров,
+# после чего незавершённые задачи форс-канселятся.
+SHUTDOWN_TIMEOUT_SECONDS = 10.0
+
 
 # ──────────────────────────────────────────────
 # LIFESPAN УПРАВЛЕНИЕ
@@ -44,6 +51,10 @@ async def lifespan(app: FastAPI):
 
 async def startup_tasks(app: FastAPI):
     """Задачи при запуске приложения."""
+    logger.info(
+        f"SECRET_KEY loaded, length={len(settings.SECRET_KEY)}, "
+        f"source={'env' if os.getenv('SECRET_KEY') else 'default'}, env={settings.ENV}"
+    )
     from app.core.database import db_manager
     db_manager.create_tables()
 
@@ -130,16 +141,103 @@ async def startup_tasks(app: FastAPI):
 
 
 async def shutdown_tasks(app: FastAPI):
-    """Очистка ресурсов при остановке."""
-    await app.state.telegram_notifier.send("🛑 Platform Master Service stopping")
+    """Корректная остановка приложения.
 
+    Шаги (каждый обёрнут в try/except, чтобы один сбойный ресурс не блокировал
+    остальные):
+      1. Уведомление в Telegram.
+      2. Отмена и ожидание фоновых задач с таймаутом ``SHUTDOWN_TIMEOUT_SECONDS``.
+      3. Остановка watchdog-обозревателя discovery.
+      4. Закрытие health-checker.
+      5. Закрытие async backup session (если есть).
+      6. Закрытие Docker-клиента (если есть метод).
+      7. Очистка кэша логов.
+    """
+    started_at = time.monotonic()
+
+    try:
+        await app.state.telegram_notifier.send("🛑 Platform Master Service stopping")
+    except Exception as exc:  # noqa: BLE001 — best-effort, не блокируем shutdown
+        logger.warning("Telegram notify on shutdown failed: %s", exc)
+
+    # 2. Фоновые задачи — отменяем и ждём с таймаутом
     for task in _background_tasks:
-        task.cancel()
+        if not task.done():
+            task.cancel()
     if _background_tasks:
-        await asyncio.gather(*_background_tasks, return_exceptions=True)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*_background_tasks, return_exceptions=True),
+                timeout=SHUTDOWN_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Background tasks did not finish within %.1fs; force-cancelling",
+                SHUTDOWN_TIMEOUT_SECONDS,
+            )
+            for task in _background_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*_background_tasks, return_exceptions=True)
     _background_tasks.clear()
 
-    await app.state.health_checker.close()
+    # 3. Watcher — вызываем отдельной попыткой (внутри свой try/except)
+    async def _safe(coro_fn, name: str) -> None:
+        try:
+            await coro_fn()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("shutdown step %s failed: %s", name, exc)
+
+    if hasattr(app.state, "discovery") and app.state.discovery is not None:
+        # stop_watcher в discovery — синхронный, обернём в to_thread
+        try:
+            await asyncio.to_thread(app.state.discovery.stop_watcher)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("discovery.stop_watcher failed: %s", exc)
+
+    # 4. HealthChecker
+    if hasattr(app.state, "health_checker") and app.state.health_checker is not None:
+        await _safe(app.state.health_checker.close(), "health_checker.close")
+
+    # 5. KopiaBackupManager — закрываем async-сессию, если она была создана
+    backup = getattr(app.state, "backup", None) or getattr(app.state, "kopia_backup", None)
+    if backup is not None:
+        session = getattr(backup, "db", None)
+        if session is not None:
+            try:
+                await session.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("backup session close failed: %s", exc)
+
+    # 6. Docker manager — закрываем, если есть соответствующий метод
+    if hasattr(app.state, "docker") and app.state.docker is not None:
+        close = getattr(app.state.docker, "close", None)
+        if callable(close):
+            try:
+                result = close()
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("docker.close failed: %s", exc)
+
+    # 7. LogManager — сбрасываем кэш, если есть метод
+    if hasattr(app.state, "log_manager") and app.state.log_manager is not None:
+        flush = getattr(app.state.log_manager, "flush", None) or getattr(
+            app.state.log_manager, "close", None
+        )
+        if callable(flush):
+            try:
+                result = flush()
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("log_manager.flush/close failed: %s", exc)
+
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+    logger.info(
+        "shutdown_complete",
+        extra={"duration_ms": duration_ms, "timeout_s": SHUTDOWN_TIMEOUT_SECONDS},
+    )
 
 
 # ──────────────────────────────────────────────
@@ -152,28 +250,177 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — поддержка '*' через строку
-if settings.ALLOWED_ORIGINS == ["*"]:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# CORS — безопасная конфигурация с учётом ENV и credentials
+origins = list(settings.ALLOWED_ORIGINS)
+if "*" in origins:
+    if settings.ENV == "production":
+        # В production нельзя молча подменять '*' на сконструированный origin:
+        # если PLATFORM_DOMAIN пуст или равен дефолтному "localhost", fallback
+        # даст нерабочий/обманчивый origin. Явно падаем, чтобы оператор заметил.
+        domain = (settings.PLATFORM_DOMAIN or "").strip().lower()
+        if not domain or domain == "localhost":
+            raise RuntimeError(
+                "ALLOWED_ORIGINS=* is forbidden in production without a real "
+                "PLATFORM_DOMAIN. Set ALLOWED_ORIGINS explicitly or configure "
+                "PLATFORM_DOMAIN to a real domain."
+            )
+        origins = [f"https://{domain}"]
+        logger.warning(
+            "ALLOWED_ORIGINS=* in production, falling back to PLATFORM_DOMAIN "
+            f"({settings.PLATFORM_DOMAIN})"
+        )
+    # в dev оставляем "*", но credentials=False (wildcard несовместим с credentials)
+allow_credentials = "*" not in origins
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+logger.info(
+    f"CORS configured: origins={origins}, allow_credentials={allow_credentials}, env={settings.ENV}"
+)
 
 # Публичный маршрут
 @app.get("/healthz")
 def health_check():
     return {"status": "ok"}
+
+
+# ──────────────────────────────────────────────
+# READYZ — readiness probe (Шаг 13)
+# ──────────────────────────────────────────────
+
+from fastapi import Request
+from fastapi.responses import JSONResponse, PlainTextResponse
+
+
+def _check_db() -> tuple[bool, str]:
+    """Проверка доступности БД через SELECT 1."""
+    try:
+        from sqlalchemy import text
+
+        from app.core.database import db_manager
+
+        engine = getattr(db_manager, "engine", None) or getattr(db_manager, "async_engine", None)
+        if engine is None:
+            return False, "no engine"
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True, "ok"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"{type(exc).__name__}: {exc}"
+
+
+@app.get("/readyz", tags=["health"])
+def readyz_handler(request: Request):
+    """Readiness probe — 200, если все зависимости готовы.
+
+    Проверяет:
+      - БД доступна (SELECT 1);
+      - Discovery watcher активен (``observer.is_alive()``);
+      - Caddy инициализирован.
+    Возвращает 503, если хотя бы одна проверка провалилась.
+    """
+    state = request.app.state
+    checks: dict[str, dict[str, str]] = {}
+    overall_ok = True
+
+    db_ok, db_msg = _check_db()
+    checks["database"] = {"status": "ok" if db_ok else "fail", "detail": db_msg}
+    overall_ok = overall_ok and db_ok
+
+    discovery = getattr(state, "discovery", None)
+    disc_ok = False
+    disc_msg = "not initialized"
+    if discovery is not None:
+        observer = getattr(discovery, "observer", None)
+        if observer is not None:
+            is_alive_fn = getattr(observer, "is_alive", None)
+            if callable(is_alive_fn):
+                disc_ok = bool(is_alive_fn())
+                disc_msg = "ok" if disc_ok else "watcher not running"
+            else:
+                disc_ok = True
+                disc_msg = "ok (no is_alive)"
+        else:
+            disc_msg = "no observer"
+    checks["discovery"] = {"status": "ok" if disc_ok else "fail", "detail": disc_msg}
+    overall_ok = overall_ok and disc_ok
+
+    caddy_ok = getattr(state, "caddy", None) is not None
+    caddy_msg = "ok" if caddy_ok else "caddy not initialized"
+    checks["caddy"] = {"status": "ok" if caddy_ok else "fail", "detail": caddy_msg}
+    overall_ok = overall_ok and caddy_ok
+
+    body = {
+        "status": "ok" if overall_ok else "fail",
+        "checks": checks,
+        "env": settings.ENV,
+        "version": settings.PROJECT_VERSION,
+    }
+    return JSONResponse(status_code=200 if overall_ok else 503, content=body)
+
+
+# ──────────────────────────────────────────────
+# METRICS — Prometheus-совместимый endpoint (Шаг 13)
+# ──────────────────────────────────────────────
+
+_metrics: dict[str, float] = {
+    "deploy_total": 0,
+    "backup_total": 0,
+    "restore_total": 0,
+    "services_count": 0,
+    "unhealthy_services": 0,
+}
+
+
+def incr_metric(name: str, delta: int = 1) -> None:
+    """Увеличивает счётчик метрики (вызывается из background tasks)."""
+    if name in _metrics:
+        _metrics[name] += delta
+
+
+def set_gauge(name: str, value: int) -> None:
+    """Устанавливает значение gauge (вызывается из background tasks)."""
+    if name in _metrics:
+        _metrics[name] = value
+
+
+def _render_prometheus() -> str:
+    """Рендерит текущие метрики в формате text/plain Prometheus exposition."""
+    lines: list[str] = []
+    for name, value in _metrics.items():
+        metric_type = "counter" if name.endswith("_total") else "gauge"
+        lines.append(f"# TYPE master_{name} {metric_type}")
+        lines.append(f"master_{name} {value}")
+    return "\n".join(lines) + "\n"
+
+
+@app.get("/metrics", tags=["health"])
+def metrics_endpoint():
+    """Prometheus-совместимый endpoint.
+
+    Реализован без зависимости ``prometheus_client`` (минимизация deps).
+    Метрики обновляются вручную через ``incr_metric``/``set_gauge``
+    и при каждом scrape — gauge ``services_count`` синхронизируется с discovery.
+    """
+    try:
+        state = app.state
+        discovery = getattr(state, "discovery", None)
+        if discovery is not None:
+            services = getattr(discovery, "services", {}) or {}
+            set_gauge("services_count", len(services))
+    except Exception:  # noqa: BLE001
+        # Метрика best-effort — не ломаем /metrics при сбое
+        pass
+
+    return PlainTextResponse(
+        content=_render_prometheus(),
+        media_type="text/plain; version=0.0.4",
+    )
 
 
 # Подключение маршрутов API

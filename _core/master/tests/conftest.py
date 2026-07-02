@@ -1,5 +1,6 @@
 """Фикстуры pytest для тестирования приложения master."""
 
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Тестовый SECRET_KEY — чтобы импорт app.config не падал на валидаторе
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-not-for-production-32+")
 
 # Add app to path for direct pytest runs
 

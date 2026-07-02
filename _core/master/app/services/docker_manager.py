@@ -109,49 +109,87 @@ class DockerManager:
         }
     
     async def _deploy_compose(
-        self, 
+        self,
         service: ServiceManifest,
         build: bool,
         pull: bool
     ) -> Dict[str, Any]:
-        """Деплой docker-compose проекта"""
+        """Деплой docker-compose проекта с детекцией partial failures (Шаг 16)."""
         compose_file = service.path / "docker-compose.yml"
-        
+
         if not compose_file.exists():
             return {
                 "success": False,
                 "message": "docker-compose.yml not found",
                 "logs": []
             }
-        
+
         cmd = ["docker", "compose", "-f", str(compose_file)]
-        
+
         # Добавляем env файл если есть
         env_file = service.path / ".env"
         if env_file.exists():
             cmd.extend(["--env-file", str(env_file)])
-        
+
         # Pull если нужно
         if pull:
             await self._run_command(
                 cmd + ["pull"]
             )
-        
+
         # Build если нужно
         if build:
             await self._run_command(
                 cmd + ["build", "--no-cache"]
             )
-        
+
         # Up
         up_result = await self._run_command(
             cmd + ["up", "-d", "--remove-orphans"]
         )
-        
+
+        if up_result["returncode"] != 0:
+            return {
+                "success": False,
+                "message": up_result["stderr"],
+                "logs": up_result["stdout"].split("\n"),
+                "partial_success": False,
+                "failed_containers": [],
+            }
+
+        # Шаг 16: проверяем состояние контейнеров после up.
+        # docker compose up возвращает 0 даже если часть контейнеров
+        # упала сразу после старта — нужна явная проверка ``ps``.
+        ps_result = await self._run_command(
+            cmd + ["ps", "--format", "{{.Service}}={{.State}}"]
+        )
+
+        failed_containers: list[str] = []
+        all_containers: list[str] = []
+        if ps_result["returncode"] == 0 and ps_result["stdout"].strip():
+            for line in ps_result["stdout"].splitlines():
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                name, state = line.split("=", 1)
+                all_containers.append(name)
+                # "running" — успех, остальное (exited, dead, restarting) — провал
+                if state.strip().lower() != "running":
+                    failed_containers.append(name)
+
+        partial_success = bool(failed_containers)
         return {
-            "success": up_result["returncode"] == 0,
-            "message": up_result["stderr"] if up_result["returncode"] != 0 else "OK",
-            "logs": up_result["stdout"].split("\n")
+            "success": not partial_success,
+            "partial_success": partial_success,
+            "failed_containers": failed_containers,
+            "total_containers": len(all_containers),
+            "message": (
+                f"Partial failure: {len(failed_containers)} of "
+                f"{len(all_containers)} containers failed to start"
+                if partial_success
+                else "OK"
+            ),
+            "logs": up_result["stdout"].split("\n"),
         }
     
     async def stop_service(self, service: ServiceManifest) -> Dict[str, Any]:

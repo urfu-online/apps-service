@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import AnyHttpUrl, field_validator, Field
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = Field("Platform Master Service", description="Название сервиса")
     PROJECT_VERSION: str = Field("1.0.0", description="Версия сервиса")
     DEBUG: bool = Field(False, description="Режим отладки")
+    ENV: Literal["dev", "staging", "production"] = Field(
+        "dev", description="Окружение: dev, staging или production"
+    )
 
     # Пути
     SERVICES_PATH: Path = Field(
@@ -79,7 +82,7 @@ class Settings(BaseSettings):
 
     # Безопасность
     SECRET_KEY: str = Field(
-        "change-me-in-production", description="Секретный ключ для подписи cookie"
+        "", description="Секретный ключ для подписи cookie (минимум 32 символа в production)"
     )
 
     # Настройки логов (согласно критическим правкам плана LogManager)
@@ -88,6 +91,23 @@ class Settings(BaseSettings):
     LOG_STORAGE_PATH: str = Field("./.logs_cache", description="Путь для персистентного хранения логов")
     LOG_ENABLE_PERSISTENCE: bool = Field(False, description="Включить сохранение логов в файлы")
     DATA_DIR: str = Field("/data", description="Базовая директория для volume-mounted путей (экспорт)")
+
+    @field_validator("SECRET_KEY", mode="after")
+    @classmethod
+    def _validate_secret_key(cls, v: str, info) -> str:
+        # Строгая проверка включается только в production. В dev/staging
+        # разрешаем короткий/пустой ключ, чтобы не блокировать локальный запуск.
+        env = info.data.get("ENV", "dev") if info.data else "dev"
+        if env != "production":
+            return v
+        if not v or v == "change-me-in-production":
+            raise ValueError(
+                "SECRET_KEY must be set to a strong random value in production "
+                "(generate with: openssl rand -hex 32)"
+            )
+        if len(v) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters")
+        return v
 
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
