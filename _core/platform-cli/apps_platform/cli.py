@@ -32,10 +32,6 @@ app = typer.Typer(
 console = Console()
 logger = logging.getLogger(__name__)
 
-# Глобальная конфигурация (инициализируется однократно при импорте)
-PROJECT_ROOT = Path(os.getenv("OPS_PROJECT_ROOT", str(Path.cwd())))
-CONFIG_FILE: Path | None = None
-
 # Константы
 MAX_URLS_DISPLAY = 3
 AVAILABILITY_TIMEOUT = 3
@@ -44,6 +40,19 @@ DOCKER_TIMEOUT = 10
 REQUEST_TIMEOUT = 10
 
 SERVICE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
+
+# Маркер корня проекта (закоммитирован в репозитории). Ищется вверх от CWD,
+# чтобы CLI работал из любой поддиректории без явного указания корня.
+_PROJECT_ROOT_MARKER = ".ops-root"
+
+# Кандидаты системного конфига (приоритет сверху вниз). В production
+# используется /etc/ops-manager/config.yml; канонический путь установки /apps
+# и per-user конфиг служат fallback'ом для дев-окружения.
+_SYSTEM_CONFIG_PATHS = (
+    Path("/etc/ops-manager/config.yml"),
+    Path("/apps/.ops-config.yml"),
+    Path.home() / ".config" / "ops-manager" / "config.yml",
+)
 
 
 def _configure_logging(*, verbose: bool) -> None:
@@ -81,25 +90,106 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return base
 
 
+def _find_marker_root(start: Path) -> Path | None:
+    """Поиск корня проекта вверх от `start` по маркеру `.ops-root`.
+
+    Маркер коммитится в репозиторий и однозначно идентифицирует корень проекта,
+    в отличие от `.ops-config.yml`, который может встречаться во вложенных сервисах.
+    """
+    current = start.resolve()
+    for parent in [current, *current.parents]:
+        if (parent / _PROJECT_ROOT_MARKER).exists():
+            return parent
+    return None
+
+
+def _read_config_file(cfg_path: Path) -> dict[str, Any]:
+    """Чтение YAML-конфига с применением .local-переопределения."""
+    with open(cfg_path) as f:
+        config: dict[str, Any] = yaml.safe_load(f) or {}
+    local_override = cfg_path.parent / ".ops-config.local.yml"
+    if local_override.exists():
+        with open(local_override) as f:
+            local_data: dict[str, Any] = yaml.safe_load(f) or {}
+        _deep_merge(config, local_data)
+    return config
+
+
+@lru_cache(maxsize=1)
+def get_project_root() -> Path:
+    """Резолвинг корня проекта по приоритетной цепочке.
+
+    Порядок разрешения (первый найденный выигрывает):
+      1. `OPS_PROJECT_ROOT` env — явное переопределение (dev/CI);
+      2. маркер `.ops-root`, ищется вверх от CWD — работа из поддиректорий (dev);
+      3. `project_root` из системного конфига — production, единый источник правды;
+      4. `Path.cwd()` — последний рубеж (поведение совместимо со старыми версиями).
+
+    Результат кэшируется на время процесса. CLI корректно работает из любой
+    директории и для любого пользователя без изменения настроек.
+    """
+    # 1. Явное переопределение через env — авторитарное: если задано, оно обязано
+    #    быть валидным. Опечатка/устаревшее значение не должны молча увести CLI
+    #    на чужой корень.
+    if env_root := os.getenv("OPS_PROJECT_ROOT"):
+        root = Path(env_root)
+        if root.is_dir():
+            logger.debug("PROJECT_ROOT from OPS_PROJECT_ROOT env: %s", root)
+            return root
+        console.print(
+            f"[red]❌ OPS_PROJECT_ROOT={env_root} не является существующей директорией. "
+            "Исправьте переменную или снимите её, чтобы авто-резолвинг сработал.[/red]"
+        )
+        raise typer.Exit(1)
+
+    # 2. Поиск маркера вверх от текущей директории (dev).
+    if marker_root := _find_marker_root(Path.cwd()):
+        logger.debug("PROJECT_ROOT from marker %s: %s", _PROJECT_ROOT_MARKER, marker_root)
+        return marker_root
+
+    # 3. Значение project_root из системного конфига (production).
+    for cfg_path in _SYSTEM_CONFIG_PATHS:
+        if not cfg_path.exists():
+            continue
+        try:
+            cfg = _read_config_file(cfg_path)
+        except OSError:
+            continue
+        if pr := cfg.get("project_root"):
+            root = Path(pr)
+            if root.is_dir():
+                logger.debug("PROJECT_ROOT from system config %s: %s", cfg_path, root)
+                return root
+
+    # 4. Fallback на текущую директорию.
+    logger.debug("PROJECT_ROOT fallback to cwd: %s", Path.cwd())
+    return Path.cwd()
+
+
 @lru_cache(maxsize=1)
 def get_config() -> dict[str, Any]:
-    """Загрузка конфигурации — кэшируется на время процесса."""
+    """Загрузка конфигурации — кэшируется на время процесса.
+
+    Порядок поиска конфига:
+      1. `OPS_CONFIG_PATH` env — явное переопределение;
+      2. `.ops-config.yml` относительно резолвленного корня проекта;
+      3. системные кандидаты (`/etc/ops-manager`, `/apps`, per-user).
+    """
+    root = get_project_root()
     config_candidates: list[Path] = [
-        Path(os.getenv("OPS_CONFIG_PATH", PROJECT_ROOT / ".ops-config.yml")),
-        Path(__file__).resolve().parent.parent.parent.parent / ".ops-config.yml",
-        Path.home() / ".config" / "ops-manager" / "config.yml",
+        Path(os.getenv("OPS_CONFIG_PATH", root / ".ops-config.yml")),
+        *_SYSTEM_CONFIG_PATHS,
     ]
+    seen: set[Path] = set()
     for cfg_path in config_candidates:
         cfg_path = Path(cfg_path)
-        if cfg_path.exists():
-            with open(cfg_path) as f:
-                config = yaml.safe_load(f) or {}
-            local_override = cfg_path.parent / ".ops-config.local.yml"
-            if local_override.exists():
-                with open(local_override) as f:
-                    local_data = yaml.safe_load(f) or {}
-                _deep_merge(config, local_data)
-            return config
+        if cfg_path in seen or not cfg_path.exists():
+            continue
+        seen.add(cfg_path)
+        try:
+            return _read_config_file(cfg_path)
+        except OSError as e:
+            logger.warning("Cannot read config %s: %s", cfg_path, e)
 
     console.print("[red]❌ Конфиг не найден. Запустите ./install.sh или укажите OPS_CONFIG_PATH[/red]")
     raise typer.Exit(1)
@@ -156,9 +246,10 @@ def _get_ssl_verify(*, insecure: bool) -> bool:
 def get_services() -> dict[str, dict[str, Any]]:
     """Сканирование сервисов в проекте."""
     config = get_config()
+    project_root = get_project_root()
     services: dict[str, dict[str, Any]] = {}
-    core_path = PROJECT_ROOT / config.get("core_path", "_core")
-    services_path = PROJECT_ROOT / config.get("services_path", "services")
+    core_path = project_root / config.get("core_path", "_core")
+    services_path = project_root / config.get("services_path", "services")
 
     if core_path.exists():
         for svc_dir in core_path.iterdir():
@@ -177,7 +268,7 @@ def get_services() -> dict[str, dict[str, Any]]:
 
 def compose_cmd(service_path: Path, *args: str) -> subprocess.CompletedProcess[Any]:
     """Выполнение docker compose с явной передачей .env."""
-    env_file = (Path(__file__).resolve().parent.parent.parent.parent / ".env").resolve()
+    env_file = (get_project_root() / ".env").resolve()
     cmd = [
         "docker", "compose",
         "--project-directory", str(service_path),
@@ -431,7 +522,7 @@ def _get_actual_service_urls(service_name: str, service_path: Path, service_conf
             seen_urls.add(url)
 
     # 1. Пытаемся получить URL из Caddy конфигурации
-    caddy_path = PROJECT_ROOT / "_core" / "caddy"
+    caddy_path = get_project_root() / "_core" / "caddy"
     if caddy_path.exists():
         caddy_routes = _parse_caddy_config(service_name, caddy_path)
         logger.debug("Caddy routes for %s: %s", service_name, caddy_routes)
@@ -701,7 +792,7 @@ def new(
         raise typer.Exit(1)
 
     config = get_config()
-    services_path = PROJECT_ROOT / config.get("services_path", "services") / visibility
+    services_path = get_project_root() / config.get("services_path", "services") / visibility
     service_dir = services_path / name
 
     if service_dir.exists():
@@ -1051,7 +1142,7 @@ def info() -> None:
     """Показать информацию о платформе."""
     config = get_config()
     console.print("\n[bold blue]Platform Master Service[/bold blue]\n")
-    console.print(f"[bold]Project Root:[/bold] {PROJECT_ROOT}")
+    console.print(f"[bold]Project Root:[/bold] {get_project_root()}")
     console.print(f"[bold]Environment:[/bold] {config.get('environment', 'unknown')}")
     console.print(f"[bold]Core Path:[/bold] {config.get('core_path', '_core')}")
     console.print(f"[bold]Services Path:[/bold] {config.get('services_path', 'services')}")
