@@ -100,13 +100,17 @@ platform reload
 
 ```
 /apps/_core/platform-cli/
-├── platform/
+├── apps_platform/
 │   ├── __init__.py       # Инициализация пакета
+│   ├── api_client.py     # HTTP клиент для Master API
+│   ├── caddy_parser.py   # Парсер конфигурации Caddy
 │   └── cli.py            # Основной код CLI
 ├── pyproject.toml        # Конфигурация проекта (PEP 621)
 ├── Dockerfile            # Для контейнерной версии
 ├── install.sh            # Скрипт установки через pipx
 ├── INSTALL.md            # Подробная документация
+└── docs/
+    └── security-model.md # Модель безопасности (docker.sock, секреты, аудит)
 └── README.md             # Этот файл
 ```
 
@@ -133,8 +137,8 @@ pip install -e "/apps/_core/platform-cli[dev]"
 pytest
 
 # Линтинг
-ruff check platform/
-black platform/
+ruff check apps_platform/
+black apps_platform/
 ```
 
 ## Обновление

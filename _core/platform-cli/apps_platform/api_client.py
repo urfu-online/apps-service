@@ -6,7 +6,8 @@
 import asyncio
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
+from typing import Any
 
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout
@@ -15,7 +16,6 @@ from tenacity import (
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    RetryError,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,8 +47,6 @@ def _retry_error_callback(retry_state):
 class APIClientError(Exception):
     """Базовое исключение для ошибок API клиента."""
 
-    pass
-
 
 class APIClient:
     """HTTP клиент для Platform Master Service API."""
@@ -56,14 +54,14 @@ class APIClient:
     def __init__(
         self,
         base_url: str,
-        token: Optional[str] = None,
-        api_key: Optional[str] = None,
+        token: str | None = None,
+        api_key: str | None = None,
         timeout: int = DEFAULT_TIMEOUT,
         verify_ssl: bool = True,
     ) -> None:
         """
         Инициализация API клиента.
-        
+
         Args:
             base_url: Базовый URL API
             token: Bearer token для авторизации
@@ -102,20 +100,21 @@ class APIClient:
             await self._session.close()
             self._session = None
 
-    @retry(
-        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential(min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
-        retry_error_callback=lambda retry_state: _retry_error_callback(retry_state),
-    )
     async def _request(
         self,
         method: str,
         endpoint: str,
-        json_data: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Выполнение HTTP запроса с retry логикой."""
+        json_data: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Выполнение HTTP запроса (без ретраев).
+
+        Ретраи включаются только для идемпотентных методов (GET, DELETE, HEAD)
+        через :meth:`_request_idempotent`. Для state-mutating POST/PUT/PATCH
+        ретраи отключены: при сетевом сбое после обработки запроса сервером
+        повторный вызов привёл бы к дублированию операции (см. backup create,
+        restore).
+        """
         if self._session is None or self._session.closed:
             await self.start()
 
@@ -141,21 +140,36 @@ class APIClient:
             logger.error(f"API error {e.status}: {e.message}")
             raise APIClientError(f"API error {e.status}: {e.message}") from e
 
-    async def post(self, endpoint: str, json_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """POST запрос."""
+    @retry(
+        retry=retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
+        stop=stop_after_attempt(MAX_RETRIES),
+        wait=wait_exponential(min=RETRY_WAIT_MIN, max=RETRY_WAIT_MAX),
+        retry_error_callback=lambda retry_state: _retry_error_callback(retry_state),
+    )
+    async def _request_idempotent(
+        self,
+        method: str,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Идемпотентный запрос с ретраями (GET, DELETE, HEAD)."""
+        return await self._request(method, endpoint, params=params)
+
+    async def post(self, endpoint: str, json_data: dict[str, Any] | None = None) -> dict[str, Any]:
+        """POST запрос. Ретраи отключены (non-idempotent)."""
         return await self._request("POST", endpoint, json_data=json_data)
 
-    async def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """GET запрос."""
-        return await self._request("GET", endpoint, params=params)
+    async def get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """GET запрос. Ретраи включены (идемпотентный)."""
+        return await self._request_idempotent("GET", endpoint, params=params)
 
-    async def delete(self, endpoint: str) -> Dict[str, Any]:
-        """DELETE запрос."""
-        return await self._request("DELETE", endpoint)
+    async def delete(self, endpoint: str) -> dict[str, Any]:
+        """DELETE запрос. Ретраи включены (идемпотентный)."""
+        return await self._request_idempotent("DELETE", endpoint)
 
     # Специфичные методы для backup API
 
-    async def create_backup(self, service_name: str) -> Dict[str, Any]:
+    async def create_backup(self, service_name: str) -> dict[str, Any]:
         """
         Создать бэкап сервиса.
 
@@ -168,7 +182,7 @@ class APIClient:
         endpoint = f"/api/backups/{service_name}/backup"
         return await self.post(endpoint)
 
-    async def list_backups(self, service_name: str) -> List[Dict[str, Any]]:
+    async def list_backups(self, service_name: str) -> list[dict[str, Any]]:
         """
         Получить список снапшотов сервиса.
 
@@ -187,9 +201,9 @@ class APIClient:
         self,
         service_name: str,
         snapshot_id: str,
-        target: Optional[str] = None,
+        target: str | None = None,
         force: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Восстановить снапшот сервиса.
 
@@ -210,7 +224,7 @@ class APIClient:
             json_data["force"] = force
         return await self.post(endpoint, json_data=json_data)
 
-    async def delete_backup(self, snapshot_id: str) -> Dict[str, Any]:
+    async def delete_backup(self, snapshot_id: str) -> dict[str, Any]:
         """
         Удалить снапшот.
 
@@ -231,7 +245,8 @@ def get_api_client() -> APIClient:
     Returns:
         Настроенный экземпляр APIClient
     """
-    from .cli import get_config, _get_ssl_verify
+    from .config import get_config, _get_ssl_verify
+    from .cli import _get_ssl_verify, get_config
 
     config = get_config()
     master_url = config.get("master_url", "http://localhost:8001")

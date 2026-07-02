@@ -2,27 +2,40 @@
 CLI утилита для управления платформой Platform Master Service
 """
 
-import asyncio
-import json
+import fcntl
 import logging
 import os
 import re
 import subprocess
+import tempfile
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import docker
-import requests
+import requests  # noqa: F401  # re-exported for ``patch("apps_platform.cli.requests.get")`` в тестах
 import typer
 import yaml
 from rich.console import Console
-from rich.table import Table
+from rich.table import Table  # noqa: F401  # re-exported для команд из ``commands.*``
 
-from apps_platform.api_client import APIClient, get_api_client
-from apps_platform.caddy_parser import parse_caddy_config
+from apps_platform.api_client import APIClient as BackupAPIClient  # noqa: F401
+
+# Ре-экспорт хелперов из ``service_inspection`` для обратной совместимости
+# (тесты патчат их как ``apps_platform.cli._<helper>``). Тяжёлые функции вынесены
+# из cli.py в Шаге 8, чтобы удержать файл в пределах 500 строк.
+from apps_platform.service_inspection import (  # noqa: F401
+    DOCKER_TIMEOUT,
+    _expand_env_vars,
+    _get_actual_service_urls,
+    _get_all_container_statuses,
+    _matches_service,
+    _parse_caddy_config,
+    _parse_compose_port_mapping,
+)
 
 app = typer.Typer(
     name="platform",
@@ -32,18 +45,26 @@ app = typer.Typer(
 console = Console()
 logger = logging.getLogger(__name__)
 
-# Глобальная конфигурация (инициализируется однократно при импорте)
-PROJECT_ROOT = Path(os.getenv("OPS_PROJECT_ROOT", str(Path.cwd())))
-CONFIG_FILE: Path | None = None
-
 # Константы
 MAX_URLS_DISPLAY = 3
 AVAILABILITY_TIMEOUT = 3
 CADDY_DEFAULT_CONTAINER_NAME = "caddy"
-DOCKER_TIMEOUT = 10
 REQUEST_TIMEOUT = 10
 
 SERVICE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
+
+# Маркер корня проекта (закоммитирован в репозитории). Ищется вверх от CWD,
+# чтобы CLI работал из любой поддиректории без явного указания корня.
+_PROJECT_ROOT_MARKER = ".ops-root"
+
+# Кандидаты системного конфига (приоритет сверху вниз). В production
+# используется /etc/ops-manager/config.yml; канонический путь установки /apps
+# и per-user конфиг служат fallback'ом для дев-окружения.
+_SYSTEM_CONFIG_PATHS = (
+    Path("/etc/ops-manager/config.yml"),
+    Path("/apps/.ops-config.yml"),
+    Path.home() / ".config" / "ops-manager" / "config.yml",
+)
 
 
 def _configure_logging(*, verbose: bool) -> None:
@@ -81,25 +102,106 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return base
 
 
+def _find_marker_root(start: Path) -> Path | None:
+    """Поиск корня проекта вверх от `start` по маркеру `.ops-root`.
+
+    Маркер коммитится в репозиторий и однозначно идентифицирует корень проекта,
+    в отличие от `.ops-config.yml`, который может встречаться во вложенных сервисах.
+    """
+    current = start.resolve()
+    for parent in [current, *current.parents]:
+        if (parent / _PROJECT_ROOT_MARKER).exists():
+            return parent
+    return None
+
+
+def _read_config_file(cfg_path: Path) -> dict[str, Any]:
+    """Чтение YAML-конфига с применением .local-переопределения."""
+    with open(cfg_path) as f:
+        config: dict[str, Any] = yaml.safe_load(f) or {}
+    local_override = cfg_path.parent / ".ops-config.local.yml"
+    if local_override.exists():
+        with open(local_override) as f:
+            local_data: dict[str, Any] = yaml.safe_load(f) or {}
+        _deep_merge(config, local_data)
+    return config
+
+
+@lru_cache(maxsize=1)
+def get_project_root() -> Path:
+    """Резолвинг корня проекта по приоритетной цепочке.
+
+    Порядок разрешения (первый найденный выигрывает):
+      1. `OPS_PROJECT_ROOT` env — явное переопределение (dev/CI);
+      2. маркер `.ops-root`, ищется вверх от CWD — работа из поддиректорий (dev);
+      3. `project_root` из системного конфига — production, единый источник правды;
+      4. `Path.cwd()` — последний рубеж (поведение совместимо со старыми версиями).
+
+    Результат кэшируется на время процесса. CLI корректно работает из любой
+    директории и для любого пользователя без изменения настроек.
+    """
+    # 1. Явное переопределение через env — авторитарное: если задано, оно обязано
+    #    быть валидным. Опечатка/устаревшее значение не должны молча увести CLI
+    #    на чужой корень.
+    if env_root := os.getenv("OPS_PROJECT_ROOT"):
+        root = Path(env_root)
+        if root.is_dir():
+            logger.debug("PROJECT_ROOT from OPS_PROJECT_ROOT env: %s", root)
+            return root
+        console.print(
+            f"[red]❌ OPS_PROJECT_ROOT={env_root} не является существующей директорией. "
+            "Исправьте переменную или снимите её, чтобы авто-резолвинг сработал.[/red]"
+        )
+        raise typer.Exit(1)
+
+    # 2. Поиск маркера вверх от текущей директории (dev).
+    if marker_root := _find_marker_root(Path.cwd()):
+        logger.debug("PROJECT_ROOT from marker %s: %s", _PROJECT_ROOT_MARKER, marker_root)
+        return marker_root
+
+    # 3. Значение project_root из системного конфига (production).
+    for cfg_path in _SYSTEM_CONFIG_PATHS:
+        if not cfg_path.exists():
+            continue
+        try:
+            cfg = _read_config_file(cfg_path)
+        except OSError:
+            continue
+        if pr := cfg.get("project_root"):
+            root = Path(pr)
+            if root.is_dir():
+                logger.debug("PROJECT_ROOT from system config %s: %s", cfg_path, root)
+                return root
+
+    # 4. Fallback на текущую директорию.
+    logger.debug("PROJECT_ROOT fallback to cwd: %s", Path.cwd())
+    return Path.cwd()
+
+
 @lru_cache(maxsize=1)
 def get_config() -> dict[str, Any]:
-    """Загрузка конфигурации — кэшируется на время процесса."""
+    """Загрузка конфигурации — кэшируется на время процесса.
+
+    Порядок поиска конфига:
+      1. `OPS_CONFIG_PATH` env — явное переопределение;
+      2. `.ops-config.yml` относительно резолвленного корня проекта;
+      3. системные кандидаты (`/etc/ops-manager`, `/apps`, per-user).
+    """
+    root = get_project_root()
     config_candidates: list[Path] = [
-        Path(os.getenv("OPS_CONFIG_PATH", PROJECT_ROOT / ".ops-config.yml")),
-        Path(__file__).resolve().parent.parent.parent.parent / ".ops-config.yml",
-        Path.home() / ".config" / "ops-manager" / "config.yml",
+        Path(os.getenv("OPS_CONFIG_PATH", root / ".ops-config.yml")),
+        *_SYSTEM_CONFIG_PATHS,
     ]
+    seen: set[Path] = set()
     for cfg_path in config_candidates:
         cfg_path = Path(cfg_path)
-        if cfg_path.exists():
-            with open(cfg_path) as f:
-                config = yaml.safe_load(f) or {}
-            local_override = cfg_path.parent / ".ops-config.local.yml"
-            if local_override.exists():
-                with open(local_override) as f:
-                    local_data = yaml.safe_load(f) or {}
-                _deep_merge(config, local_data)
-            return config
+        if cfg_path in seen or not cfg_path.exists():
+            continue
+        seen.add(cfg_path)
+        try:
+            return _read_config_file(cfg_path)
+        except OSError as e:
+            logger.warning("Cannot read config %s: %s", cfg_path, e)
 
     console.print("[red]❌ Конфиг не найден. Запустите ./install.sh или укажите OPS_CONFIG_PATH[/red]")
     raise typer.Exit(1)
@@ -156,9 +258,10 @@ def _get_ssl_verify(*, insecure: bool) -> bool:
 def get_services() -> dict[str, dict[str, Any]]:
     """Сканирование сервисов в проекте."""
     config = get_config()
+    project_root = get_project_root()
     services: dict[str, dict[str, Any]] = {}
-    core_path = PROJECT_ROOT / config.get("core_path", "_core")
-    services_path = PROJECT_ROOT / config.get("services_path", "services")
+    core_path = project_root / config.get("core_path", "_core")
+    services_path = project_root / config.get("services_path", "services")
 
     if core_path.exists():
         for svc_dir in core_path.iterdir():
@@ -175,361 +278,113 @@ def get_services() -> dict[str, dict[str, Any]]:
     return services
 
 
-def compose_cmd(service_path: Path, *args: str) -> subprocess.CompletedProcess[Any]:
-    """Выполнение docker compose с явной передачей .env."""
-    env_file = (Path(__file__).resolve().parent.parent.parent.parent / ".env").resolve()
+def _lock_path() -> Path:
+    """Путь к файлу-блокировке CLI (Шаг 17).
+
+    Приоритет: ``$XDG_RUNTIME_DIR`` → ``/var/lock`` → ``tempfile.gettempdir()``.
+    Использование ``$XDG_RUNTIME_DIR`` предпочтительно, т.к. блокировка
+    привязана к сессии пользователя и очищается при logout.
+    """
+    xdg = os.getenv("XDG_RUNTIME_DIR")
+    if xdg:
+        return Path(xdg) / "platform-cli.lock"
+    if os.access("/var/lock", os.W_OK):
+        return Path("/var/lock/platform-cli.lock")
+    return Path(tempfile.gettempdir()) / "platform-cli.lock"
+
+
+@contextmanager
+def platform_lock(*, blocking: bool = False, timeout: float = 0.0) -> Iterator[None]:
+    """Файл-блокировка для предотвращения race conditions между CLI-вызовами.
+
+    Реализация через ``fcntl.flock(LOCK_EX | LOCK_NB)`` — освобождается ОС
+    при завершении процесса. По умолчанию ``non-blocking`` — если другая
+    команда ``platform`` уже выполняется, текущая команда завершается с
+    ``typer.Exit(1)`` и понятным сообщением.
+
+    Args:
+        blocking: если True — ожидать освобождения блокировки до ``timeout`` сек.
+        timeout: максимальное время ожидания (только при ``blocking=True``).
+    """
+    path = _lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # O_NOFOLLOW refuses to open through a symlink. Lock paths live in shared
+    # directories (/var/lock, /tmp) where untrusted local users can race us;
+    # following a symlink would let them truncate arbitrary files we can write.
+    fd = os.open(str(path), os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        if blocking:
+            deadline = time.monotonic() + timeout
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        console.print(
+                            f"[red]❌ Таймаут ожидания блокировки {path} "
+                            f"({timeout}s). Другая команда platform "
+                            "уже выполняется.[/red]"
+                        )
+                        raise typer.Exit(1) from None
+                    time.sleep(0.1)
+        else:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                console.print(
+                    f"[red]❌ Другая команда platform уже выполняется "
+                    f"(lock: {path}).[/red]"
+                )
+                raise typer.Exit(1) from None
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except Exception:  # noqa: BLE001 — best effort
+            pass
+        os.close(fd)
+
+
+def compose_cmd(
+    service_path: Path,
+    *args: str,
+    dry_run: bool = False,
+) -> subprocess.CompletedProcess[Any]:
+    """Выполнение docker compose с явной передачей .env.
+
+    Параметр ``dry_run=True`` возвращает фиктивный ``CompletedProcess`` с кодом
+    0 и логирует команду, которую CLI выполнил бы в реальном режиме.
+    Используется командами ``deploy``/``new`` для безопасного предпросмотра.
+    """
+    env_file = (get_project_root() / ".env").resolve()
     cmd = [
-        "docker", "compose",
-        "--project-directory", str(service_path),
-        "-f", str(service_path / "docker-compose.yml"),
+        "docker",
+        "compose",
+        "--project-directory",
+        str(service_path),
+        "-f",
+        str(service_path / "docker-compose.yml"),
     ]
     if env_file.exists():
         cmd.extend(["--env-file", str(env_file)])
     cmd.extend(args)
+    if dry_run:
+        logger.info("[DRY-RUN] would execute: %s", " ".join(cmd))
+        console.print(f"[yellow]DRY-RUN:[/yellow] {' '.join(cmd)}")
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
     return subprocess.run(cmd, capture_output=False)
 
-
-def _get_all_container_statuses() -> dict[str, str]:
-    """Один запрос к Docker для получения статусов всех контейнеров."""
-    try:
-        # Используем JSON-формат для надёжного парсинга
-        res = subprocess.run(
-            ["docker", "ps", "-a", "--format", "json"],
-            capture_output=True, text=True, check=True, timeout=DOCKER_TIMEOUT
-        )
-        statuses = {}
-        for line in res.stdout.strip().splitlines():
-            if not line:
-                continue
-            entry = json.loads(line)
-            name = entry.get("Names", "")
-            status = entry.get("Status", "")
-            if name:
-                statuses[name] = status
-        return statuses
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        return {}
-
-
-def _matches_service(container_name: str, service_name: str) -> bool:
-    """Гибкое сопоставление имени контейнера и сервиса."""
-    # Точное совпадение
-    if container_name == service_name:
-        return True
-    # Docker Compose префиксы: {service}-frontend-1, {service}_db_1
-    if container_name.startswith(f"{service_name}-") or container_name.startswith(f"{service_name}_"):
-        return True
-    # Project-name суффиксы: platform-master, backup_support_1
-    if container_name.endswith(f"-{service_name}") or container_name.endswith(f"_{service_name}"):
-        return True
-    # Составные имена: course-archive-explorer в course-archive-explorer-backend-1
-    if service_name in container_name:
-        return True
-    return False
-
-
-def _get_container_network_info(container_name: str) -> dict[str, Any]:
-    """Получение информации о сети контейнера (IP, порты)."""
-    try:
-        with docker_client() as client:
-            container = client.containers.get(container_name)
-            network_settings = container.attrs.get("NetworkSettings", {})
-            is_running = container.status == "running"
-
-        # Получаем IP адреса из сетей
-        networks = network_settings.get("Networks", {})
-        ip_addresses = []
-        for net_name, net_config in networks.items():
-            if net_config.get("IPAddress"):
-                ip_addresses.append({
-                    "network": net_name,
-                    "ip": net_config["IPAddress"]
-                })
-
-        # Получаем опубликованные порты
-        ports = network_settings.get("Ports", {})
-        exposed_ports = []
-        for port_key, port_bindings in ports.items():
-            if port_bindings:
-                for binding in port_bindings:
-                    exposed_ports.append({
-                        "container_port": port_key,
-                        "host_ip": binding.get("HostIp", "0.0.0.0"),
-                        "host_port": binding.get("HostPort")
-                    })
-
-        result: dict[str, Any] = {
-            "ip_addresses": ip_addresses,
-            "exposed_ports": exposed_ports,
-            "running": is_running,
-        }
-        logger.debug("Container network info for %s: %s", container_name, result)
-        return result
-    except Exception:
-        return {"ip_addresses": [], "exposed_ports": [], "running": False}
-
-
-def _parse_caddy_config(service_name: str, caddy_path: Path) -> list[dict[str, Any]]:
-    """Backward-compat wrapper.
-
-    Основная реализация находится в `apps_platform.caddy_parser.parse_caddy_config()`.
-    """
-
-    return parse_caddy_config(service_name, caddy_path)
-
-
-def _expand_env_vars(value: str, *, max_depth: int = 5) -> str:
-    """Раскрытие переменных окружения с поддержкой синтаксиса `${VAR:-default}`.
-
-    Поддерживает вложенные выражения в default (например, `${A:-${B:-x}}`) и ограничивает глубину
-    рекурсии для защиты от циклов и бесконечной подстановки.
-    """
-
-    if not value or not isinstance(value, str):
-        return value
-
-    def find_matching_brace(s: str, start: int) -> int | None:
-        """Ищет закрывающую `}` для подстроки, начинающейся с `${` в позиции start."""
-        i = start
-        if not s.startswith("${", i):
-            return None
-        i += 2
-        depth = 1
-        while i < len(s):
-            if s.startswith("${", i):
-                depth += 1
-                i += 2
-                continue
-            if s[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    return i
-            i += 1
-        return None
-
-    def split_var_default(inner: str) -> tuple[str, str | None]:
-        """Разделяет `VAR` и `default` в `VAR:-default`, учитывая вложенные `${...}` в default."""
-        i = 0
-        depth = 0
-        while i < len(inner) - 1:
-            if inner.startswith("${", i):
-                depth += 1
-                i += 2
-                continue
-            if inner[i] == "}" and depth > 0:
-                depth -= 1
-                i += 1
-                continue
-            if depth == 0 and inner.startswith(":-", i):
-                return inner[:i], inner[i + 2 :]
-            i += 1
-        return inner, None
-
-    def expand(s: str, depth: int, seen: set[str]) -> str:
-        if depth >= max_depth:
-            return s
-        if s in seen:
-            # Защита от циклов типа VAR=${VAR}
-            return s
-        seen.add(s)
-
-        out: list[str] = []
-        i = 0
-        changed = False
-        while i < len(s):
-            if not s.startswith("${", i):
-                out.append(s[i])
-                i += 1
-                continue
-
-            end = find_matching_brace(s, i)
-            if end is None:
-                # Некорректная конструкция — оставляем как есть
-                out.append(s[i])
-                i += 1
-                continue
-
-            inner = s[i + 2 : end]
-            var_part, default_part = split_var_default(inner)
-            var_name = var_part.strip()
-            default_raw = default_part if default_part is not None else ""
-
-            replacement = os.environ.get(var_name)
-            if replacement is None:
-                replacement = expand(default_raw, depth + 1, seen)
-
-            out.append(replacement)
-            changed = True
-            i = end + 1
-
-        result = "".join(out)
-        if not changed:
-            return result
-        # Разворачиваем значения, которые сами могут содержать `${...}`
-        return expand(result, depth + 1, seen)
-
-    return expand(value, 0, set())
-
-
-_PORT_MAPPING_HOST_CONTAINER_RE = re.compile(r"^(?P<host>\d+):(?P<container>\d+)$")
-_PORT_MAPPING_IP_HOST_CONTAINER_RE = re.compile(
-    r"^(?P<ip>(?:\[[^\]]+\])|[^:]+):(?P<host>\d+):(?P<container>\d+)$"
-)
-
-
-def _parse_compose_port_mapping(port_mapping: str) -> int | None:
-    """Извлекает host_port из записи `ports:` docker-compose.
-
-    Поддерживаемые форматы:
-    - `[::1]:8080:80`
-    - `0.0.0.0:8080:80`
-    - `8080:80`
-    - те же варианты с суффиксом протокола (`/tcp`, `/udp`)
-    """
-
-    if not port_mapping or not isinstance(port_mapping, str):
-        return None
-
-    mapping = port_mapping.strip()
-    if "/" in mapping:
-        mapping = mapping.split("/", 1)[0].strip()
-
-    m = _PORT_MAPPING_HOST_CONTAINER_RE.fullmatch(mapping)
-    if m:
-        return int(m.group("host"))
-
-    m = _PORT_MAPPING_IP_HOST_CONTAINER_RE.fullmatch(mapping)
-    if m:
-        return int(m.group("host"))
-
-    # Fallback: IPv6 без квадратных скобок. Compose обычно ожидает скобки, но на всякий случай
-    # поддерживаем формат `::1:8080:80` (делим справа, чтобы не путать двоеточия адреса).
-    if ":" in mapping and not mapping.startswith("[") and mapping.count(":") >= 2:
-        ip_part, host_port, container_port = mapping.rsplit(":", 2)
-        if ip_part and host_port.isdigit() and container_port.isdigit():
-            return int(host_port)
-
-    return None
-
-
-def _get_actual_service_urls(service_name: str, service_path: Path, service_config: dict[str, Any]) -> list[str]:
-    """
-    Получение действительных URL сервиса из различных источников.
-
-    Приоритет источников:
-    1. Caddy конфигурация (реальные домены/пути)
-    2. docker-compose.yml (опубликованные порты)
-    3. service.yml routing (декларированные маршруты)
-    4. Дефолтные значения
-    """
-    urls: list[str] = []
-    seen_urls: set[str] = set()
-
-    def add_url(url: str) -> None:
-        if url and url not in seen_urls:
-            urls.append(url)
-            seen_urls.add(url)
-
-    # 1. Пытаемся получить URL из Caddy конфигурации
-    caddy_path = PROJECT_ROOT / "_core" / "caddy"
-    if caddy_path.exists():
-        caddy_routes = _parse_caddy_config(service_name, caddy_path)
-        logger.debug("Caddy routes for %s: %s", service_name, caddy_routes)
-        for route in caddy_routes:
-            if route.get("type") == "domain":
-                domain = route.get("domain", "")
-                if domain:
-                    add_url(f"https://{domain}")
-            elif route.get("type") == "subfolder":
-                domain = route.get("domain", "localhost")
-                path = route.get("path", f"/{service_name}")
-                add_url(f"https://{domain}{path}")
-
-    # 2. Получаем URL из docker-compose.yml (опубликованные порты)
-    # TODO(arch): Консолидация источников URL.
-    # - Вынести работу с compose/service.yml/Caddyfile в единый модуль (см. TODO в _parse_caddy_config).
-    # - Или заменить всё на запрос к master service API.
-    compose_file = service_path / "docker-compose.yml"
-    if compose_file.exists():
-        try:
-            with open(compose_file) as f:
-                compose_config = yaml.safe_load(f) or {}
-
-            compose_services = compose_config.get("services", {})
-            for _svc_name, svc_config in compose_services.items():
-                ports = svc_config.get("ports", [])
-                for port_mapping in ports:
-                    if isinstance(port_mapping, str):
-                        # Формат: "host:container" или "ip:host:container" (в т.ч. IPv6 в квадратных скобках)
-                        host_port = _parse_compose_port_mapping(port_mapping)
-                        if host_port is not None:
-                            add_url(f"http://localhost:{host_port}")
-                    elif isinstance(port_mapping, int):
-                        add_url(f"http://localhost:{port_mapping}")
-                    elif isinstance(port_mapping, dict):
-                        # Compose spec: { target: 80, published: 8080, protocol: tcp, mode: host }
-                        published = port_mapping.get("published")
-                        if isinstance(published, int):
-                            add_url(f"http://localhost:{published}")
-                        elif isinstance(published, str) and published.isdigit():
-                            add_url(f"http://localhost:{int(published)}")
-        except Exception:
-            # Не прерываем выполнение команды list из-за проблем парсинга compose.
-            pass
-
-    # 3. Получаем URL из service.yml routing
-    routing_configs = service_config.get("routing", [])
-    for route in routing_configs:
-        route_type = route.get("type", "subfolder")
-
-        if route_type == "domain":
-            domain = route.get("domain", "")
-            if domain:
-                domain = _expand_env_vars(domain)
-                add_url(f"https://{domain}")
-        elif route_type == "subfolder":
-            base_domain = route.get("base_domain", "localhost")
-            base_domain = _expand_env_vars(base_domain)
-            path = route.get("path", f"/{service_name}")
-            add_url(f"https://{base_domain}{path}")
-        elif route_type == "port":
-            port = route.get("port", route.get("internal_port", 8000))
-            add_url(f"http://localhost:{port}")
-
-        # Автоматический поддомен
-        if route.get("auto_subdomain", False):
-            base = route.get("base_domain", "apps.urfu.online")
-            add_url(f"https://{service_name}.{base}")
-
-    # 4. Дефолтный URL если ничего не найдено
-    if not urls:
-        routing = service_config.get("routing", [])
-        if routing:
-            # Используем первый маршрут как дефолт
-            first_route = routing[0]
-            route_type = first_route.get("type", "subfolder")
-            if route_type == "domain":
-                domain = _expand_env_vars(first_route.get("domain", "localhost"))
-                add_url(f"https://{domain}")
-            elif route_type == "port":
-                port = first_route.get("port", 8000)
-                add_url(f"http://localhost:{port}")
-            else:
-                base_domain = _expand_env_vars(first_route.get("base_domain", "localhost"))
-                path = first_route.get("path", f"/{service_name}")
-                add_url(f"https://{base_domain}{path}")
-        else:
-            # Совсем дефолт
-            add_url("http://localhost:8000")
-
-    return urls
 
 
 def get_service_status(service_path: Path) -> str:
     try:
         result = subprocess.run(
             ["docker", "compose", "-f", str(service_path / "docker-compose.yml"), "ps", "-q"],
-            capture_output=True, text=True, cwd=service_path, timeout=DOCKER_TIMEOUT
+            capture_output=True,
+            text=True,
+            cwd=service_path,
+            timeout=DOCKER_TIMEOUT,
         )
         if result.returncode != 0:
             return f"error: {result.stderr.strip()[:50]}"
@@ -576,539 +431,39 @@ def validate_service_name(name: str) -> str:
     return name.lower()
 
 
-@app.command("list")
-def list_services(
-    visibility: str | None = typer.Option(None, "--visibility", "-v", help="Фильтр по видимости (public/internal)"),
-    status_filter: str | None = typer.Option(None, "--status", "-s", help="Фильтр по статусу (running/stopped)"),
-    check_availability: bool = typer.Option(False, "--check", "-c", help="Проверять доступность сервисов"),
-    insecure: bool = typer.Option(
-        False,
-        "--insecure",
-        help="Отключить проверку SSL сертификата при проверке доступности (также можно PLATFORM_SSL_VERIFY=false)",
-    ),
-) -> None:
-    """Показать все сервисы."""
-    services = get_services()
-    container_map = _get_all_container_statuses()  # Один запрос вместо N
-
-    ssl_verify = _get_ssl_verify(insecure=insecure)
-
-    table = Table(title="Сервисы платформы")
-    table.add_column("Service", style="cyan")
-    table.add_column("Type", style="magenta")
-    table.add_column("URL / Path", style="blue")
-    table.add_column("Status", style="yellow")
-    table.add_column("Available", style="green")
-
-    for name, info in sorted(services.items()):
-        if visibility and info["type"] != visibility:
-            continue
-
-        # Быстрая проверка статуса через кэш контейнеров
-        svc_status = "stopped"
-        matching = [c for c in container_map if _matches_service(c, name)]
-        if matching:
-            # Берём статус первого совпавшего контейнера
-            first_status = container_map[matching[0]].split()[0].lower()
-            if first_status in ("up", "running", "restarting", "healthy"):
-                svc_status = f"running ({len(matching)})"
-
-        if status_filter:
-            if status_filter == "running" and "running" not in svc_status:
-                continue
-            if status_filter == "stopped" and "running" in svc_status:
-                continue
-
-        # Получаем информацию о маршрутизации из service.yml
-        service_path = info["path"]
-        service_yml_path = service_path / "service.yml"
-
-        # Загружаем service.yml конфигурацию
-        service_config = {}
-        if service_yml_path.exists():
-            with open(service_yml_path) as f:
-                try:
-                    service_config = yaml.safe_load(f) or {}
-                except Exception:
-                    console.print(f"[yellow]⚠️  Не удалось прочитать service.yml для '{name}'[/yellow]")
-
-        # Получаем действительные URL сервиса из всех источников
-        urls = _get_actual_service_urls(name, service_path, service_config)
-
-        # Форматируем URLs для отображения
-        # Показываем максимум MAX_URLS_DISPLAY URL
-        url_display = "\n".join(urls[:MAX_URLS_DISPLAY])
-        if len(urls) > MAX_URLS_DISPLAY:
-            url_display += f"\n... +{len(urls) - MAX_URLS_DISPLAY} ещё"
-
-        # Проверка доступности - проверяем каждый URL пока не найдём рабочий
-        availability_status = "—"
-        if check_availability and "running" in svc_status:
-            checked_urls = []
-            for url in urls:
-                # Пропускаем URL с переменными которые не раскрылись
-                if '${' in url or '$PLATFORM_DOMAIN' in url:
-                    continue
-                checked_urls.append(url)
-                try:
-                    response = requests.get(url, timeout=AVAILABILITY_TIMEOUT, verify=ssl_verify)
-                    if response.status_code < 500:
-                        availability_status = "✓"
-                        break
-                    else:
-                        availability_status = f"✗ {response.status_code}"
-                except requests.exceptions.ConnectionError:
-                    availability_status = "✗ conn"
-                except requests.exceptions.Timeout:
-                    availability_status = "✗ timeout"
-                except Exception as e:
-                    availability_status = f"✗ {type(e).__name__}"
-
-            # Если все проверки не прошли, но сервис running - ставим статус
-            if availability_status.startswith("✗") and len(checked_urls) > 0:
-                pass  # Оставляем последнюю ошибку
-            elif not checked_urls and "running" in svc_status:
-                availability_status = "?"  # Не смогли проверить
-        elif "running" in svc_status:
-            availability_status = "?"  # Сервис запущен, но проверка не включена
-
-        status_style = "green" if "running" in svc_status else "red"
-        avail_style = (
-            "green"
-            if availability_status == "✓"
-            else ("red" if availability_status.startswith("✗") else "white")
-        )
-        table.add_row(
-            name,
-            info["type"],
-            url_display,
-            f"[{status_style}]{svc_status}[/{status_style}]",
-            f"[{avail_style}]{availability_status}[/{avail_style}]"
-        )
-
-    console.print(table)
+def _service_exists(service_name: str) -> bool:
+    """Проверяет, существует ли сервис с указанным именем."""
+    try:
+        get_service_or_fail(get_services(), service_name)
+        return True
+    except typer.Exit:
+        return False
 
 
-@app.command()
-def new(
-    name: str = typer.Argument(..., help="Имя сервиса"),
-    visibility: str = typer.Argument("public", help="Видимость сервиса (public/internal)"),
-) -> None:
-    """Создать новый сервис из шаблона."""
-    validate_service_name(name)
-    if visibility not in ("public", "internal"):
-        console.print("[red]❌ visibility должен быть 'public' или 'internal'[/red]")
-        raise typer.Exit(1)
+def _get_backup_enabled(service_name: str) -> bool:
+    """Возвращает True, если в service.yml сервиса включён раздел ``backup``."""
+    try:
+        service_path = get_service_or_fail(get_services(), service_name)
+    except typer.Exit:
+        return False
 
-    config = get_config()
-    services_path = PROJECT_ROOT / config.get("services_path", "services") / visibility
-    service_dir = services_path / name
-
-    if service_dir.exists():
-        console.print(f"[red]❌ Сервис '{name}' уже существует[/red]")
-        raise typer.Exit(1)
-
-    service_dir.mkdir(parents=True, exist_ok=True)
-
-    service_yml = {
-        "name": name,
-        "display_name": name.replace("-", " ").title(),
-        "version": "1.0.0",
-        "description": f"Сервис {name}",
-        "maintainer": "team@example.com",
-        "type": "docker-compose",
-        "visibility": visibility,
-        "routing": [{
-            "type": "subfolder",
-            "base_domain": "apps.example.com",
-            "path": f"/{name}",
-            "strip_prefix": True,
-            "internal_port": 8000,
-        }],
-        "health": {"enabled": True, "endpoint": "/healthz", "interval": "30s"},
-        "backup": {"enabled": False, "schedule": "0 2 * * *", "retention": 7},
-    }
-
-    with open(service_dir / "service.yml", "w") as f:
-        yaml.dump(service_yml, f, default_flow_style=False, allow_unicode=True)
-
-    docker_compose = f"""version: "3.8"
-services:
-  {name.replace('-', '_')}:
-    build: .
-    container_name: {name}
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    networks:
-      - servicenet
-      - platform
-    environment:
-      - ENV=production
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-networks:
-  servicenet:
-    name: {name}_network
-  platform:
-    external: true
-    name: platform_network
-"""
-    with open(service_dir / "docker-compose.yml", "w") as f:
-        f.write(docker_compose)
-
-    with open(service_dir / ".env.example", "w") as f:
-        f.write("# Переменные окружения сервиса\nENV=production\nDATABASE_URL=postgresql://user:pass@db:5432/dbname\n")
-
-    with open(service_dir / ".env", "w") as f:
-        f.write("# Переменные окружения — скопируйте из .env.example и заполните\n")
-
-    readme = f"""# {name.replace("-", " ").title()}
-Описание
-{service_yml['description']}
-Запуск
-platform deploy {name}
-Логи
-platform logs {name}
-"""
-    with open(service_dir / "README.md", "w") as f:
-        f.write(readme)
-
-    (service_dir / "src").mkdir(exist_ok=True)
-    (service_dir / "src" / "__init__.py").touch()
-
-    console.print(f"[green]✅ Сервис '{name}' создан в {service_dir}[/green]")
-    console.print("\nСледующие шаги:")
-    console.print(f"  1. Отредактируйте [cyan]{service_dir}/service.yml[/cyan]")
-    console.print(f"  2. Добавьте код приложения в [cyan]{service_dir}/src/[/cyan]")
-    console.print(f"  3. Задеплойте: [cyan]platform deploy {name}[/cyan]")
-
-
-@app.command()
-def deploy(
-    service: str = typer.Argument(..., help="Имя сервиса"),
-    build: bool = typer.Option(False, "--build", "-b", help="Пересобрать образы"),
-    pull: bool = typer.Option(False, "--pull", "-p", help="Обновить образы"),
-) -> None:
-    """Задеплоить сервис."""
-    service_path = get_service_or_fail(get_services(), service)
-
-    args = ["up", "-d"]
-    if build:
-        args.append("--build")
-    if pull:
-        args.append("--pull")
-
-    console.print(f"[blue]ℹ️  Деплой сервиса '{service}'...[/blue]")
-    result = compose_cmd(service_path, *args)
-
-    if result.returncode == 0:
-        console.print(f"[green]✅ Сервис '{service}' успешно задеплоен[/green]")
-    else:
-        console.print(f"[red]❌ Ошибка деплоя сервиса '{service}'[/red]")
-        raise typer.Exit(1)
-
-
-@app.command()
-def stop(service: str = typer.Argument(..., help="Имя сервиса")) -> None:
-    """Остановить сервис."""
-    service_path = get_service_or_fail(get_services(), service)
-
-    console.print(f"[blue]ℹ️  Остановка сервиса '{service}'...[/blue]")
-    result = compose_cmd(service_path, "down")
-
-    if result.returncode == 0:
-        console.print(f"[green]✅ Сервис '{service}' остановлен[/green]")
-    else:
-        console.print(f"[red]❌ Ошибка остановки сервиса '{service}'[/red]")
-        raise typer.Exit(1)
-
-
-@app.command()
-def restart(service: str = typer.Argument(..., help="Имя сервиса")) -> None:
-    """Перезапустить сервис."""
-    service_path = get_service_or_fail(get_services(), service)
-
-    console.print(f"[blue]ℹ️  Перезапуск сервиса '{service}'...[/blue]")
-    compose_cmd(service_path, "restart")
-    console.print(f"[green]✅ Сервис '{service}' перезапущен[/green]")
-
-
-@app.command()
-def status(service: str | None = typer.Argument(None, help="Имя сервиса (опционально)")) -> None:
-    """Показать статус сервисов."""
-    if service:
-        service_path = get_service_or_fail(get_services(), service)
-        status = get_service_status(service_path)
-
-        console.print(f"\n[bold]Сервис:[/bold] {service}")
-        console.print(f"[bold]Путь:[/bold] {service_path}")
-        console.print(f"[bold]Статус:[/bold] {status}")
-
-        try:
-            with docker_client() as client:
-                containers = client.containers.list(filters={"name": service})
-                if containers:
-                    container = containers[0]
-                    stats = container.stats(stream=False)
-                    if "memory_stats" in stats:
-                        memory = stats["memory_stats"]
-                        if "usage" in memory and "limit" in memory:
-                            memory_mb = memory["usage"] / (1024 * 1024)
-                            memory_limit_mb = memory["limit"] / (1024 * 1024)
-                            console.print(f"[bold]Память:[/bold] {memory_mb:.1f}MB / {memory_limit_mb:.1f}MB")
-        except Exception:
-            # Память — дополнительная информация, не должна ломать команду.
-            pass
-    else:
-        list_services()
-
-
-@app.command()
-def logs(
-    service: str = typer.Argument(..., help="Имя сервиса"),
-    lines: int = typer.Option(100, "--lines", "-n", help="Количество строк"),
-    follow: bool = typer.Option(False, "--follow", "-f", help="Следить за логами"),
-) -> None:
-    """Просмотр логов сервиса."""
-    service_path = get_service_or_fail(get_services(), service)
-
-    args = ["logs", f"--tail={lines}"]
-    if follow:
-        args.append("-f")
-
-    compose_cmd(service_path, *args)
-
-
-# Группа команд для управления бэкапами Kopia
-backup_app = typer.Typer(name="backup", help="Управление бэкапами Kopia")
-app.add_typer(backup_app)
-
-
-@backup_app.callback(invoke_without_command=True)
-def backup_callback(
-    ctx: typer.Context,
-    service: str = typer.Argument(..., help="Имя сервиса (устаревший синтаксис)"),
-):
-    """Создать бэкап сервиса (устаревший синтаксис)."""
-    if ctx.invoked_subcommand is None:
-        console.print("[yellow]⚠️  Команда 'platform backup' устарела, используйте 'platform backup create'[/yellow]")
-        asyncio.run(_backup_create_async(service))
-
-
-async def _ensure_backup_enabled(service_name: str) -> None:
-    """Проверка, что бэкапы включены в service.yml."""
-    services = get_services()
-    service_path = get_service_or_fail(services, service_name)
     service_yml_path = service_path / "service.yml"
-
     if not service_yml_path.exists():
-        console.print("[red]❌ Файл service.yml не найден[/red]")
-        raise typer.Exit(1)
-
-    with open(service_yml_path) as f:
-        service_config = yaml.safe_load(f)
-
-    backup_config = service_config.get("backup", {})
-    if not backup_config.get("enabled", False):
-        console.print("[yellow]⚠️  Бэкапы не включены в service.yml[/yellow]")
-        raise typer.Exit(1)
-
-
-@backup_app.command("create")
-def backup_create(
-    service: str = typer.Argument(..., help="Имя сервиса"),
-) -> None:
-    """Создать бэкап сервиса (Kopia)."""
-    asyncio.run(_backup_create_async(service))
-
-
-async def _backup_create_async(service_name: str) -> None:
-    """Асинхронная реализация создания бэкапа."""
-    await _ensure_backup_enabled(service_name)
+        return False
 
     try:
-        async with get_api_client() as client:
-            result = await client.create_backup(service_name)
-            console.print(f"[green]✅ Бэкап создан: {result.get('snapshot_id', 'N/A')}[/green]")
-            if "message" in result:
-                console.print(f"[blue]ℹ️  {result['message']}[/blue]")
-    except Exception as e:
-        console.print(f"[red]❌ Ошибка: {e}[/red]")
-        raise typer.Exit(1) from e
+        with open(service_yml_path) as f:
+            service_config = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return False
+
+    return bool(service_config.get("backup", {}).get("enabled", False))
 
 
-@backup_app.command("list")
-def backup_list(
-    service: str = typer.Argument(..., help="Имя сервиса"),
-) -> None:
-    """Показать список снапшотов сервиса."""
-    asyncio.run(_backup_list_async(service))
-
-
-async def _backup_list_async(service_name: str) -> None:
-    """Асинхронная реализация списка снапшотов."""
-    await _ensure_backup_enabled(service_name)
-
-    try:
-        async with get_api_client() as client:
-            snapshots = await client.list_backups(service_name)
-            if not snapshots:
-                console.print("[yellow]⚠️  Снапшотов не найдено[/yellow]")
-                return
-
-            table = Table(title=f"Снапшоты сервиса {service_name}")
-            table.add_column("ID", style="cyan")
-            table.add_column("Создан", style="magenta")
-            table.add_column("Размер", style="blue")
-            table.add_column("Статус", style="yellow")
-
-            for snap in snapshots:
-                snapshot_id = snap.get("snapshot_id", "N/A")
-                created_at = snap.get("created_at", "N/A")
-                size_bytes = snap.get("size_bytes", 0)
-                status = snap.get("status", "unknown")
-
-                # Форматирование размера
-                if size_bytes >= 1024 ** 3:
-                    size_str = f"{size_bytes / (1024 ** 3):.2f} GB"
-                elif size_bytes >= 1024 ** 2:
-                    size_str = f"{size_bytes / (1024 ** 2):.2f} MB"
-                elif size_bytes >= 1024:
-                    size_str = f"{size_bytes / 1024:.2f} KB"
-                else:
-                    size_str = f"{size_bytes} B"
-
-                table.add_row(snapshot_id, created_at, size_str, status)
-
-            console.print(table)
-    except Exception as e:
-        console.print(f"[red]❌ Ошибка: {e}[/red]")
-        raise typer.Exit(1) from e
-
-
-@backup_app.command("restore")
-def backup_restore(
-    service: str = typer.Argument(..., help="Имя сервиса"),
-    snapshot_id: str = typer.Argument(..., help="ID снапшота"),
-    target: str = typer.Option(None, "--target", "-t", help="Целевой путь (опционально)"),
-    force: bool = typer.Option(False, "--force", "-f", help="Принудительное восстановление"),
-) -> None:
-    """Восстановить снапшот сервиса."""
-    asyncio.run(_backup_restore_async(service, snapshot_id, target, force))
-
-
-async def _backup_restore_async(
-    service_name: str,
-    snapshot_id: str,
-    target: Optional[str],
-    force: bool,
-) -> None:
-    """Асинхронная реализация восстановления."""
-    await _ensure_backup_enabled(service_name)
-
-    try:
-        async with get_api_client() as client:
-            result = await client.restore_backup(service_name, snapshot_id, target, force)
-            console.print(f"[green]✅ Восстановление запущено: {result.get('operation_id', 'N/A')}[/green]")
-            if "message" in result:
-                console.print(f"[blue]ℹ️  {result['message']}[/blue]")
-    except Exception as e:
-        console.print(f"[red]❌ Ошибка: {e}[/red]")
-        raise typer.Exit(1) from e
-
-
-@backup_app.command("delete")
-def backup_delete(
-    snapshot_id: str = typer.Argument(..., help="ID снапшота"),
-    force: bool = typer.Option(False, "--force", "-f", help="Пропустить подтверждение"),
-) -> None:
-    """Удалить снапшот."""
-    if not force:
-        confirm = typer.confirm(f"Вы уверены, что хотите удалить снапшот {snapshot_id}?")
-        if not confirm:
-            console.print("[yellow]⚠️ Операция отменена[/yellow]")
-            raise typer.Exit(0)
-    asyncio.run(_backup_delete_async(snapshot_id))
-
-
-async def _backup_delete_async(snapshot_id: str) -> None:
-    """Асинхронная реализация удаления снапшота."""
-    try:
-        async with get_api_client() as client:
-            result = await client.delete_backup(snapshot_id)
-            console.print(f"[green]✅ Снапшот удалён: {result.get('message', 'Успешно')}[/green]")
-    except Exception as e:
-        console.print(f"[red]❌ Ошибка: {e}[/red]")
-        raise typer.Exit(1) from e
-
-
-@app.command()
-def info() -> None:
-    """Показать информацию о платформе."""
-    config = get_config()
-    console.print("\n[bold blue]Platform Master Service[/bold blue]\n")
-    console.print(f"[bold]Project Root:[/bold] {PROJECT_ROOT}")
-    console.print(f"[bold]Environment:[/bold] {config.get('environment', 'unknown')}")
-    console.print(f"[bold]Core Path:[/bold] {config.get('core_path', '_core')}")
-    console.print(f"[bold]Services Path:[/bold] {config.get('services_path', 'services')}")
-
-    services = get_services()
-    core_count = sum(1 for s in services.values() if s["type"] == "core")
-    public_count = sum(1 for s in services.values() if s["type"] == "public")
-    internal_count = sum(1 for s in services.values() if s["type"] == "internal")
-
-    console.print(f"\n[bold]Всего сервисов:[/bold] {len(services)}")
-    console.print(f"  - Core: {core_count}")
-    console.print(f"  - Public: {public_count}")
-    console.print(f"  - Internal: {internal_count}")
-
-
-@app.command()
-def reload(
-    container: str = typer.Option(CADDY_DEFAULT_CONTAINER_NAME, "--container", "-c", help="Имя контейнера Caddy"),
-) -> None:
-    """Перезагрузить конфигурацию Caddy."""
-    # Валидация имени контейнера
-    if not container or not container.replace("-", "").replace("_", "").isalnum():
-        console.print("[red]❌ Неверное имя контейнера[/red]")
-        raise typer.Exit(1)
-
-    # Проверка существования контейнера
-    try:
-        check_result = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}"],
-            capture_output=True, text=True, check=True
-        )
-        running_containers = check_result.stdout.strip().split("\n")
-        if container not in running_containers:
-            console.print(f"[red]❌ Контейнер '{container}' не найден или не запущен[/red]")
-            console.print("[yellow]Доступные контейнеры:[/yellow]")
-            for c in running_containers:
-                if c:
-                    console.print(f"  - {c}")
-            raise typer.Exit(1)
-    except subprocess.CalledProcessError as e:
-        console.print("[red]❌ Ошибка проверки контейнеров Docker[/red]")
-        raise typer.Exit(1) from e
-
-    console.print(f"[blue]ℹ️  Перезагрузка Caddy в контейнере '{container}'...[/blue]")
-    try:
-        subprocess.run(
-            ["docker", "exec", container, "caddy", "reload", "--config", "/etc/caddy/Caddyfile"],
-            capture_output=True, text=True, check=True
-        )
-        console.print("[green]✅ Caddy перезапущен[/green]")
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]❌ Ошибка: {e.stderr.strip()}[/red]")
-        raise typer.Exit(1) from e
-    except Exception:
-        logger.exception("Unhandled error while reloading Caddy")
-        console.print("[red]❌ Неизвестная ошибка при перезагрузке Caddy[/red]")
-        raise typer.Exit(1) from None
+# Импорт пакета команд нужен для регистрации @app.command-декораторов
+# на ``apps_platform.cli.app``. Без этого ``platform list``, ``platform deploy``,
+# ``platform backup ...`` и пр. будут отсутствовать в CLI.
+from . import commands as _commands  # noqa: E402, F401
 
 
 def main() -> None:

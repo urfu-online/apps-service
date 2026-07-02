@@ -73,6 +73,142 @@ fi
 # Normalize to absolute path
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
 
+# Маркер корня проекта: позволяет CLI находить корень из любой поддиректории.
+# Создаётся в проектном корне, не содержит данных (см. get_project_root() в cli.py).
+touch "$PROJECT_ROOT/.ops-root"
+
+# --- Системный конфиг (только server/production) ---
+# Пишем единый системный конфиг в /etc/ops-manager/config.yml, доступный всем
+# пользователям только для чтения (0644). Это единственный источник правды для
+# project_root в production: CLI резолвит корень без привязки к CWD или пользователю.
+# ВАЖНО: только для server — custom/local имеют пользовательский PROJECT_ROOT и
+# не должны загрязнять хост-широкий конфиг, от которого зависят все пользователи.
+SYSTEM_CONFIG_DIR="/etc/ops-manager"
+SYSTEM_CONFIG_FILE="$SYSTEM_CONFIG_DIR/config.yml"
+
+write_system_config() {
+    # Создаём директорию под root.
+    if [[ $EUID -ne 0 ]]; then
+        sudo install -d -m 0755 "$SYSTEM_CONFIG_DIR"
+    else
+        install -d -m 0755 "$SYSTEM_CONFIG_DIR"
+    fi
+
+    # Бэкап существующего конфига перед перезаписью (idempotent re-install не
+    # должен молча сносить ручные правки). Имя с таймстампом, чтобы не плодить
+    # одинаковые бэкапы.
+    if [[ -f "$SYSTEM_CONFIG_FILE" ]]; then
+        local bak="${SYSTEM_CONFIG_FILE}.bak-$(date +%s)"
+        log "Бэкап существующего конфига -> $bak"
+        if [[ $EUID -ne 0 ]]; then
+            sudo cp -p "$SYSTEM_CONFIG_FILE" "$bak"
+        else
+            cp -p "$SYSTEM_CONFIG_FILE" "$bak"
+        fi
+    fi
+
+    # Пишем конфиг напрямую через root (без tmpfile-хопа в /tmp): mktemp+sudo install
+    # расширяет поверхность для symlink-атак и требует world-readable промежуточного
+    # файла. Здесь используем единственный root-канал записи.
+    local cfg_content
+    cfg_content="$(cat << EOF
+# Ops Manager System Configuration
+# Generated: $(date)
+# Единый системный конфиг: доступен всем пользователям (0644).
+# CLI ищет его первым в production (см. _SYSTEM_CONFIG_PATHS в cli.py).
+environment: $ENV_NAME
+project_root: $PROJECT_ROOT
+
+# Service paths (relative to project_root)
+core_path: _core
+services_path: services
+
+# Docker settings
+docker_host: unix:///var/run/docker.sock
+EOF
+)"
+
+    if [[ $EUID -ne 0 ]]; then
+        printf '%s\n' "$cfg_content" | sudo tee "$SYSTEM_CONFIG_FILE" > /dev/null
+        sudo chmod 0644 "$SYSTEM_CONFIG_FILE"
+    else
+        printf '%s\n' "$cfg_content" > "$SYSTEM_CONFIG_FILE"
+        chmod 0644 "$SYSTEM_CONFIG_FILE"
+    fi
+}
+
+if [[ "$ENV_NAME" == "server" ]]; then
+    log "Запись системного конфига $SYSTEM_CONFIG_FILE ..."
+    write_system_config
+    ok "Системный конфиг записан: $SYSTEM_CONFIG_FILE"
+else
+    log "Режим '$ENV_NAME': системный конфиг /etc/ops-manager не пишется (пользовательский)."
+    log "CLI будет использовать .ops-config.yml в корне проекта и per-user конфиг."
+fi
+
+# --- Доступ к Docker socket для группы platform-admins (только server) ---
+# Группа platform-admins уже существует на сервере; нужные пользователи уже в ней.
+# Надёжный способ закрепить права — systemd drop-in для docker.socket: chmod на
+# /var/run/docker.sock сбрасывается демоном при каждом рестарте, а drop-in
+# применяется автоматически на каждом запуске юнита.
+DOCKER_SOCKET="/var/run/docker.sock"
+DOCKER_SOCKET_DROPIN_DIR="/etc/systemd/system/docker.socket.d"
+DOCKER_SOCKET_DROPIN="${DOCKER_SOCKET_DROPIN_DIR}/10-platform-admins.conf"
+
+configure_docker_socket() {
+    if [[ ! -S "$DOCKER_SOCKET" ]]; then
+        warn "Docker socket $DOCKER_SOCKET не найден — пропускаем настройку прав"
+        warn "(если Docker установится позже, перезапустите этот install.sh)"
+        return 0
+    fi
+    if ! getent group platform-admins &> /dev/null; then
+        warn "Группа 'platform-admins' не найдена. Создайте её и добавьте пользователей:"
+        warn "  sudo groupadd platform-admins && sudo usermod -aG platform-admins <user>"
+        return 0
+    fi
+
+    log "Установка systemd drop-in для docker.socket (SocketGroup=platform-admins)..."
+
+    local dropin_content
+    dropin_content="$(cat << 'EOF'
+# Managed by ops-manager install.sh — даём группе platform-admins доступ к Docker socket.
+# Применяется автоматически при каждом запуске docker.socket (переживает рестарт демона).
+[Socket]
+SocketUser=root
+SocketGroup=platform-admins
+SocketMode=0660
+EOF
+)"
+
+    if [[ $EUID -ne 0 ]]; then
+        sudo install -d -m 0755 "$DOCKER_SOCKET_DROPIN_DIR"
+        printf '%s\n' "$dropin_content" | sudo tee "$DOCKER_SOCKET_DROPIN" > /dev/null
+        sudo systemctl daemon-reload
+        sudo systemctl restart docker.socket
+    else
+        install -d -m 0755 "$DOCKER_SOCKET_DROPIN_DIR"
+        printf '%s\n' "$dropin_content" > "$DOCKER_SOCKET_DROPIN"
+        systemctl daemon-reload
+        systemctl restart docker.socket
+    fi
+
+    # Подстраховка: применяем права и к текущему socket (drop-in подействует на
+    # следующий рестарт, а пользователи хотят работать уже сейчас).
+    if [[ $EUID -ne 0 ]]; then
+        sudo chgrp platform-admins "$DOCKER_SOCKET" 2>/dev/null || true
+        sudo chmod 660 "$DOCKER_SOCKET" 2>/dev/null || true
+    else
+        chgrp platform-admins "$DOCKER_SOCKET" 2>/dev/null || true
+        chmod 660 "$DOCKER_SOCKET" 2>/dev/null || true
+    fi
+
+    ok "Docker socket доступен группе platform-admins (персистентно через systemd)"
+}
+
+if [[ "$ENV_NAME" == "server" ]]; then
+    configure_docker_socket
+fi
+
 # --- Ask for install location ---
 echo ""
 echo "Where to install 'ops' command?"
@@ -134,8 +270,10 @@ cat > "$OPS_SCRIPT" << 'OPS_EOF'
 #!/bin/bash
 set -euo pipefail
 
-# Config locations
+# Config locations (порядок = приоритет). Системный конфиг /etc/ops-manager/config.yml
+# делает `ops` доступным из любой директории в production без привязки к пользователю.
 CONFIG_CANDIDATES=(
+    "/etc/ops-manager/config.yml"
     "$PWD/.ops-config.yml"
     "$(dirname "$0")/.ops-config.yml"
     "$HOME/.config/ops-manager/config.yml"
@@ -324,57 +462,59 @@ chmod +x "$OPS_SCRIPT"
 
 # --- Install platform CLI script (опционально) ---
 if [[ "$INSTALL_PLATFORM_CLI" == "true" ]]; then
-    log "Installing platform CLI to $TARGET..."
-
-    PLATFORM_SCRIPT="$TARGET/platform"
     PLATFORM_CLI_DIR="$PROJECT_ROOT/_core/platform-cli"
 
-    cat > "$PLATFORM_SCRIPT" << 'PLATFORM_EOF'
-#!/bin/bash
-# Platform CLI wrapper - запускает platform через pipx или напрямую
+    if [[ "$ENV_NAME" == "server" ]]; then
+        # Production: системная установка через pipx в /opt/pipx + /usr/local/bin/platform.
+        # Доступна всем пользователям, изоляция зависимостей сохранена.
+        log "Системная установка platform CLI (production)..."
+        bash "$PLATFORM_CLI_DIR/install.sh" --system
+        ok "platform CLI установлен системно в /usr/local/bin/platform"
+    else
+        # Dev: пользовательская установка в ~/.local.
+        log "Установка platform CLI (dev, пользовательская)..."
+        bash "$PLATFORM_CLI_DIR/install.sh"
+    fi
 
-# PROJECT_ROOT подставляется при установке
+    # Убедимся, что wrapper в $TARGET не затирает системный бинарник.
+    # Для server-режима platform уже в /usr/local/bin — отдельный wrapper не нужен.
+    if [[ "$ENV_NAME" != "server" ]]; then
+        log "Установка platform wrapper в $TARGET..."
+        PLATFORM_SCRIPT="$TARGET/platform"
+        cat > "$PLATFORM_SCRIPT" << 'PLATFORM_EOF'
+#!/bin/bash
+# Platform CLI wrapper - запускает platform через pipx или напрямую.
+# Корень проекта резолвится автоматически (см. get_project_root() в cli.py).
+
+# PROJECT_ROOT подставляется при установке (только для dev-fallback).
 PROJECT_ROOT="__PROJECT_ROOT__"
 
-# Проверка наличия platform (pipx installation)
 if command -v platform &> /dev/null; then
     exec platform "$@"
 fi
 
-# Fallback: запуск через pipx install
 PLATFORM_CLI_DIR="$PROJECT_ROOT/_core/platform-cli"
-
-if [[ -d "$PLATFORM_CLI_DIR" ]]; then
-    # Проверка pipx
-    if command -v pipx &> /dev/null; then
-        echo "⚠️  Установка platform-cli через pipx..."
-        pipx install "$PLATFORM_CLI_DIR" && platform "$@"
-        exit $?
-    fi
-
-    # Fallback: прямой запуск через Python
-    if command -v python3 &> /dev/null; then
-        cd "$PLATFORM_CLI_DIR" && python3 -m platform.cli "$@"
-        exit $?
-    fi
+if [[ -d "$PLATFORM_CLI_DIR" ]] && command -v python3 &> /dev/null; then
+    (cd "$PLATFORM_CLI_DIR" && python3 -m apps_platform.cli "$@")
+    exit $?
 fi
 
-echo "❌ platform CLI не найден. Установите:"
-echo "   pipx install $PROJECT_ROOT/_core/platform-cli"
-echo "   или: cd $PROJECT_ROOT/_core/platform-cli && ./install.sh"
+echo "❌ platform CLI не найден. Установите:" >&2
+echo "   bash $PROJECT_ROOT/_core/platform-cli/install.sh" >&2
 exit 1
 PLATFORM_EOF
-
-    # Подставляем реальный PROJECT_ROOT
-    sed -i "s|__PROJECT_ROOT__|$PROJECT_ROOT|g" "$PLATFORM_SCRIPT"
-
-    chmod +x "$PLATFORM_SCRIPT"
-    ok "Platform CLI wrapper установлен в $PLATFORM_SCRIPT"
+        sed -i "s|__PROJECT_ROOT__|$PROJECT_ROOT|g" "$PLATFORM_SCRIPT"
+        chmod +x "$PLATFORM_SCRIPT"
+        ok "Platform CLI wrapper установлен в $PLATFORM_SCRIPT"
+    fi
 else
     echo ""
     warn "Platform CLI не установлен"
-    echo "   Для установки позже: pipx install $PROJECT_ROOT/_core/platform-cli"
-    echo "   или: cd $PROJECT_ROOT/_core/platform-cli && ./install.sh"
+    if [[ "$ENV_NAME" == "server" ]]; then
+        echo "   Для системной установки: bash $PROJECT_ROOT/_core/platform-cli/install.sh --system"
+    else
+        echo "   Для установки: bash $PROJECT_ROOT/_core/platform-cli/install.sh"
+    fi
 fi
 
 # Add to PATH hint

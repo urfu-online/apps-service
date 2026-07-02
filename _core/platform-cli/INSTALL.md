@@ -141,6 +141,44 @@ newgrp docker
 docker ps
 ```
 
+> ⚠️ **Безопасность Docker socket.** Монтирование `/var/run/docker.sock` в
+> контейнер с `platform-cli` (или запуск CLI от пользователя из группы `docker`)
+> эквивалентно предоставлению **root-доступа к хосту**. Любой код, выполняемый
+> в таком контейнере/CLI, может:
+>
+> - создавать, останавливать и удалять произвольные контейнеры;
+> - монтировать `/` хоста в контейнер и читать любые файлы;
+> - получать секреты из переменных окружения запущенных контейнеров;
+> - повышать привилегии через `--privileged` или `--cap-add=ALL`.
+>
+> **Рекомендации:**
+>
+> 1. По возможности используйте **rootless Docker** (`dockerd-rootless.sh`),
+>    который изолирует CLI от привилегий суперпользователя.
+> 2. Если rootless недоступен, ограничьте доступ к docker socket через
+>    [docker-sudo-proxy](https://github.com/nicholasgasior/docker-sudo-proxy)
+>    или политики SELinux/AppArmor.
+> 3. Никогда не запускайте `platform-cli` от `root` и не добавляйте в группу
+>    `docker` пользователей, которым не нужен полный доступ к Docker.
+> 4. При монтировании `docker.sock` в `docker-compose.yml` используйте
+>    именованный том с правами `ro`:
+>
+> ```yaml
+> services:
+>   platform-cli:
+>     image: platform-cli:latest
+>     volumes:
+>       - type: bind
+>         source: /var/run/docker.sock
+>         target: /var/run/docker.sock
+>         read_only: true  # CLI только читает состояние; запись запрещена
+>     user: "1000:1000"  # запуск от непривилегированного пользователя
+>     cap_drop: ["ALL"]
+>     security_opt: ["no-new-privileges:true"]
+> ```
+>
+> Подробнее — см. [docs/security-model.md](docs/security-model.md).
+
 ---
 
 ## Конфигурация
@@ -244,14 +282,14 @@ pip install -e "/apps/_core/platform-cli[dev]"
 
 ```bash
 pytest
-pytest --cov=platform
+pytest --cov=apps_platform
 ```
 
 ### Линтинг
 
 ```bash
-ruff check platform/
-black --check platform/
+ruff check apps_platform/
+black --check apps_platform/
 ```
 
 ---
