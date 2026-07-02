@@ -45,7 +45,7 @@ pipx install /apps/_core/platform-cli
 
 ```
 /apps/_core/platform-cli/
-├── platform/              # Исходный код (единственное, что нужно)
+├── apps_platform/         # Исходный код (единственное, что нужно)
 │   ├── __init__.py
 │   └── cli.py
 ├── pyproject.toml         # Конфигурация PEP 621

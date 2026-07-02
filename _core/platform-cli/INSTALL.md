@@ -244,14 +244,14 @@ pip install -e "/apps/_core/platform-cli[dev]"
 
 ```bash
 pytest
-pytest --cov=platform
+pytest --cov=apps_platform
 ```
 
 ### Линтинг
 
 ```bash
-ruff check platform/
-black --check platform/
+ruff check apps_platform/
+black --check apps_platform/
 ```
 
 ---

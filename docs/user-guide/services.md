@@ -16,7 +16,7 @@ platform new my-service public
 platform new internal-service internal
 ```
 
-Эта команда создаст структуру директорий в соответствующей папке (`/opt/platform/services/public/` или `/opt/platform/services/internal/`) со следующими файлами:
+Эта команда создаст структуру директорий в соответствующей папке (`services/public/` или `services/internal/` относительно корня проекта) со следующими файлами:
 
 - `service.yml` - манифест сервиса
 - `docker-compose.yml` - конфигурация Docker Compose

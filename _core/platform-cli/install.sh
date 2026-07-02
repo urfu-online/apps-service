@@ -116,18 +116,11 @@ if $SYSTEM_INSTALL; then
     export PIPX_HOME="${SYSTEM_PIPX_HOME}"
     export PIPX_BIN_DIR="${SYSTEM_PIPX_BIN_DIR}"
 
-    if "${PIPX_BIN}" list 2>/dev/null | grep -q "platform-cli"; then
-        log "platform-cli уже установлен. Обновление..."
-        "${PIPX_BIN}" upgrade platform-cli
-    else
-        "${PIPX_BIN}" install "$CLI_DIR"
-    fi
+    "${PIPX_BIN}" install --force "$CLI_DIR"
 
-    # Симлинк должен существовать в /usr/local/bin (pipx создаёт его сам,
-    # но гарантируем, чтобы быть доступным всем пользователям через системный PATH).
-    if [[ ! -x "${SYSTEM_PIPX_BIN_DIR}/platform" ]]; then
-        ln -sf "${SYSTEM_VENV_DIR}/bin/platform" "${SYSTEM_PIPX_BIN_DIR}/platform"
-    fi
+    # Симлинк в /usr/local/bin (pipx создаёт его сам, но гарантируем
+    # наличие для всех пользователей через системный PATH).
+    ln -sf "${SYSTEM_VENV_DIR}/bin/platform" "${SYSTEM_PIPX_BIN_DIR}/platform"
     chmod 0755 "${SYSTEM_PIPX_BIN_DIR}/platform" 2>/dev/null || true
 
     ok "Системная установка завершена"
