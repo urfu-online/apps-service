@@ -1,30 +1,52 @@
 #!/usr/bin/env bash
 # =============================================================================
-# install-server.sh — установка платформы apps-service на чистый сервер
+# install-server.sh — установка И аккуратное обновление платформы apps-service
+#                     на Ubuntu 22.04 (запуск от root/sudo)
 #
-# Поддерживаемая ОС: Ubuntu 22.04 LTS (jammy), запуск от root/sudo.
+# Два режима, определяются автоматически:
+#   • ЧИСТАЯ УСТАНОВКА — платформа не развёрнута: полный цикл от создания /apps
+#     до тестового сервиса и проверки всех основных функций.
+#   • ОБНОВЛЕНИЕ работающей платформы (сервисы продолжают работать) —
+#     обнаружен живой стек, требуется явный флаг --upgrade-running:
+#       - авто-бэкап master.db, services/, caddy, .env -> /apps/backups/pre-update-<ts>/
+#       - git: только `pull --ff-only`. Untracked-файлы (services/, .env, master.db,
+#         conf.d) git не трогает НИКОГДА; локальные правки tracked-файлов тоже не
+#         удаляются: при конфликте pull завершится ошибкой и мы продолжим с той
+#         версией кода, что есть. Никаких reset/checkout/clean.
+#       - rsync (--source) без --delete: ничего не удаляет, services/ и master.db
+#         исключены из копирования.
+#       - core пересобирается БЕЗ `down`: старый master работает на время сборки.
+#       - Docker не обновляется (нужен явный --upgrade-docker — это рестарт демона).
+#       - smoke-test не разворачивается (нужен явный --with-test-service).
+#     Контейнеры сервисов не останавливаются; кратковременный недоступ через Caddy
+#     — только на момент пересоздания/перезагрузки caddy (секунды).
+#
 # Что делает скрипт (по шагам, всё пишется в единый лог-файл):
-#   1. Предпроверки (ОС, RAM, диск, сеть)
-#   2. Обновление/установка Docker + Compose v2 из официального репозитория
+#   1. Предпроверки (ОС, RAM, диск) + определение режима (установка/обновление)
+#   2. Пакеты и Docker + Compose v2 (обновление Docker — только для чистой установки)
 #   3. Python 3.11+ (нужен для platform-cli; в 22.04 по умолчанию 3.10)
-#   4. Раскладка проекта в /apps (git clone или копирование из исходников)
-#   5. Установка ops/platform CLI и системного конфига (через install.sh)
+#   4. Бэкап живого состояния (для обновления) + раскладка/обновление кода в /apps
+#   5. ops/platform CLI и системный конфиг (при обновлении уже стоящее не трогаем)
 #   6. Сборка и запуск core-сервисов (master + caddy)
 #   7. Создание admin-пользователя API (builtin auth)
-#   8. Деплой тестового сервиса smoke-test
-#   9. Проверка основных функций платформы (discovery, caddy, health, API, CLI)
-#  10. Итоговый отчёт с ошибками/предупреждениями и путями для отладки
+#   8. Деплой тестового сервиса smoke-test (чистая установка)
+#   9. Проверка основных функций платформы
+#  10. Диагностика окружения + итоговый отчёт
 #
 # ЗАПУСК:
-#   sudo bash install-server.sh --domain apps.example.com
+#   чистая установка:  sudo bash install-server.sh --domain apps.example.com
+#   обновление:        sudo bash install-server.sh --upgrade-running
 #
 # ОСНОВНЫЕ ОПЦИИ:
 #   --domain NAME        PLATFORM_DOMAIN для .env (по умолчанию localhost)
 #   --apps-root PATH     корень установки (по умолчанию /apps)
 #   --repo URL           git-репозиторий проекта (по умолчанию origin проекта)
-#   --branch NAME        ветка при clone (по умолчанию main)
-#   --source DIR         копировать проект из локальной директории вместо clone
+#   --branch NAME        ветка при clone/pull (по умолчанию main)
+#   --source DIR         копировать проект из локальной директории вместо git
 #   --acme-email EMAIL   e-mail для Let's Encrypt (правит Caddyfile)
+#   --upgrade-running    разрешить обновление работающей платформы (с бэкапом)
+#   --upgrade-docker     разрешить обновление Docker на живом стеке (рестарт демона)
+#   --with-test-service  развернуть smoke-test и на живом стеке
 #   --skip-docker        не трогать Docker (только проверить, что работает)
 #   --skip-test-service  не разворачивать smoke-test сервис
 #   --force              разрешить запуск не на Ubuntu 22.04
@@ -44,7 +66,7 @@ set -Eeuo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 # Глобальные переменные и значения по умолчанию
 # ─────────────────────────────────────────────────────────────────────────────
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.1.0"
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
@@ -57,6 +79,11 @@ ACME_EMAIL=""
 SKIP_DOCKER=false
 SKIP_TEST_SERVICE=false
 FORCE=false
+UPGRADE_RUNNING=false
+UPGRADE_DOCKER=false
+WITH_TEST_SERVICE=false
+LIVE_STACK=false
+BACKUP_DIR=""
 
 MASTER_CONTAINER="platform-master"
 CADDY_CONTAINER="caddy"
@@ -162,7 +189,7 @@ trap on_exit EXIT
 # Аргументы командной строки
 # ─────────────────────────────────────────────────────────────────────────────
 usage() {
-    sed -n '2,32p' "$SCRIPT_PATH" | sed 's/^# \?//'
+    awk 'NR==1{next} /^# =+$/{if(seen++){exit}} /^#/{sub(/^# ?/,""); print}' "$SCRIPT_PATH"
     exit 0
 }
 
@@ -174,6 +201,9 @@ while [ $# -gt 0 ]; do
         --source)         SOURCE_DIR="$2"; shift 2 ;;
         --domain)         PLATFORM_DOMAIN="$2"; shift 2 ;;
         --acme-email)     ACME_EMAIL="$2"; shift 2 ;;
+        --upgrade-running) UPGRADE_RUNNING=true; shift ;;
+        --upgrade-docker) UPGRADE_DOCKER=true; shift ;;
+        --with-test-service) WITH_TEST_SERVICE=true; shift ;;
         --skip-docker)    SKIP_DOCKER=true; shift ;;
         --skip-test-service) SKIP_TEST_SERVICE=true; shift ;;
         --force)          FORCE=true; shift ;;
@@ -259,6 +289,67 @@ wait_http() { # $1 = url, $2 = timeout сек, $3 = ожидаемый код (�
     done
 }
 
+# Определяет, развёрнута ли уже платформа (живой стек с данными/сервисами).
+# Критерии: непустой master.db (там есть схема/пользователи), либо сервисы в
+# services/ (кроме служебного smoke-test), либо работающие core-контейнеры при
+# наличии хоть одного сервиса. Пустая неудачная попытка установки НЕ считается
+# живым стеком — повторный запуск пройдёт как чистая установка.
+detect_live_stack() {
+    LIVE_STACK=false
+    local why="" svc_total=0 svc_real=0
+    if [ -d "$APPS_ROOT/services" ]; then
+        svc_total=$(find "$APPS_ROOT/services" -mindepth 3 -maxdepth 3 -name service.yml 2>/dev/null | wc -l)
+        svc_real=$(find "$APPS_ROOT/services" -mindepth 3 -maxdepth 3 -name service.yml 2>/dev/null | grep -vc "/$TEST_SERVICE/" || true)
+    fi
+    local core_running=false
+    if command -v docker >/dev/null 2>&1; then
+        for c in "$MASTER_CONTAINER" "$CADDY_CONTAINER"; do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" = "true" ]; then
+                core_running=true
+                break
+            fi
+        done
+    fi
+
+    if [ "$svc_real" -gt 0 ]; then
+        LIVE_STACK=true; why="в services/ есть сервисы: $svc_real"
+    elif [ -s "$APPS_ROOT/_core/master/master.db" ]; then
+        LIVE_STACK=true; why="master.db содержит данные ($APPS_ROOT/_core/master/master.db)"
+    elif $core_running && [ "$svc_total" -gt 0 ]; then
+        LIVE_STACK=true; why="core-контейнеры работают + $svc_total сервис(ов)"
+    fi
+
+    if $LIVE_STACK; then
+        log "Режим: ОБНОВЛЕНИЕ работающей платформы — $why"
+    else
+        log "Режим: ЧИСТАЯ УСТАНОВКА"
+    fi
+}
+
+# Бэкап живого состояния перед любыми изменениями кода/конфигов.
+# Данные сервисов (postgres/data и т.п.) не архивируем — как update-platform.sh.
+backup_live_state() {
+    BACKUP_DIR="$APPS_ROOT/backups/pre-update-$(date +%Y%m%d-%H%M%S)"
+    run mkdir -p "$BACKUP_DIR"
+    run chmod 0750 "$BACKUP_DIR"
+    if [ -s "$APPS_ROOT/_core/master/master.db" ]; then
+        run cp -a "$APPS_ROOT/_core/master/master.db" "$BACKUP_DIR/master.db"
+    fi
+    if [ -d "$APPS_ROOT/services" ]; then
+        run tar -C "$APPS_ROOT" --exclude='*/postgres/data' --exclude='*/node_modules' \
+            --exclude='*.log' -czf "$BACKUP_DIR/services.tgz" services
+    fi
+    if [ -d "$APPS_ROOT/_core/caddy" ]; then
+        run tar -C "$APPS_ROOT" -czf "$BACKUP_DIR/caddy-config.tgz" \
+            _core/caddy/conf.d _core/caddy/Caddyfile _core/caddy/snippets 2>/dev/null \
+            || warn "caddy-config.tgz не собран полностью (часть путей отсутствует)"
+    fi
+    [ -f "$APPS_ROOT/.env" ] && run cp -a "$APPS_ROOT/.env" "$BACKUP_DIR/.env"
+    [ -f "$APPS_ROOT/.ops-config.yml" ] && run cp -a "$APPS_ROOT/.ops-config.yml" "$BACKUP_DIR/.ops-config.yml"
+    ok "Бэкап живого состояния: $BACKUP_DIR ($(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1))"
+    hint "Откат: восстановить master.db/services/caddy из $BACKUP_DIR и выполнить restart_core.sh"
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ШАГ 1. Предпроверки
 # ─────────────────────────────────────────────────────────────────────────────
@@ -307,6 +398,26 @@ else
     log "Запуск напрямую от root"
 fi
 
+# --- Определение режима и защита живого стека ---
+detect_live_stack
+
+if $LIVE_STACK && ! $UPGRADE_RUNNING; then
+    echo "" >&2
+    err "Обнаружена УЖЕ работающая платформа в $APPS_ROOT — без явного подтверждения не трогаю."
+    hint "Аккуратное обновление (бэкап, без остановки сервисов, без обновления Docker):"
+    hint "  sudo bash $SCRIPT_PATH --upgrade-running [--domain $PLATFORM_DOMAIN]"
+    hint "Чистая установка — только на чистый сервер (или удалите $APPS_ROOT осознанно)."
+    die "Запуск остановлен: требуется --upgrade-running"
+fi
+
+if $LIVE_STACK; then
+    log "Политика обновления: бэкап перед изменениями; core без down; Docker не трогаем; smoke-test пропускаем"
+    if ! $SKIP_TEST_SERVICE && ! $WITH_TEST_SERVICE; then
+        SKIP_TEST_SERVICE=true
+        log "smoke-test пропущен (живой стек). Для проверки маршрута: --with-test-service"
+    fi
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ШАГ 2. Системные пакеты и Docker
 # ─────────────────────────────────────────────────────────────────────────────
@@ -327,6 +438,14 @@ ok "Доступ в интернет подтверждён"
 
 if $SKIP_DOCKER; then
     warn "--skip-docker: установка/обновление Docker пропущена"
+elif $LIVE_STACK && ! $UPGRADE_DOCKER; then
+    log "Живой стек: Docker не обновляется (для обновления нужен --upgrade-docker — это рестарт демона)"
+    if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+        die "Живой стек заявлен, но Docker-демон недоступен — проверьте установку Docker"
+    fi
+    if ! docker compose version >/dev/null 2>&1; then
+        warn "Docker Compose v2 (plugin) не найден — запустите с --upgrade-docker или установите docker-compose-plugin"
+    fi
 else
     DOCKER_WAS_RUNNING=false
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
@@ -474,14 +593,31 @@ ok "Шим PATH подготовлен: $SHIM_DIR"
 section "ШАГ 4/10. Раскладка проекта в $APPS_ROOT"
 STEP="Шаг 4: копирование проекта"
 
+# Бэкап живого состояния — до любых изменений кода/конфигов.
+if $LIVE_STACK; then
+    backup_live_state
+fi
+
 run mkdir -p "$APPS_ROOT"
 
 if [ -f "$APPS_ROOT/_core/master/docker-compose.yml" ] && [ -z "$SOURCE_DIR" ]; then
-    log "Проект уже присутствует в $APPS_ROOT — пробуем обновить через git pull"
+    log "Проект уже присутствует в $APPS_ROOT — обновление через git pull"
     if [ -d "$APPS_ROOT/.git" ]; then
-        if ! run git -C "$APPS_ROOT" pull --ff-only origin "$BRANCH"; then
-            warn "git pull не удался — продолжаем с той версией, что есть в $APPS_ROOT"
+        LOCAL_CHANGES=$(git -C "$APPS_ROOT" status --short 2>/dev/null | head -20)
+        if [ -n "$LOCAL_CHANGES" ]; then
+            warn "В рабочем дереве есть локальные изменения/незакоммиченные файлы — git их НЕ трогает:"
+            echo "$LOCAL_CHANGES" | sed 's/^/    | /'
+        else
+            ok "Рабочее дерево чистое (локальных правок нет)"
         fi
+        # pull --ff-only безопасен: untracked-файлы (services/, .env, master.db, conf.d)
+        # не удаляются никогда; при локальных правках tracked-файлов pull откажется
+        # мержить и мы продолжим с текущим кодом. Никаких reset/checkout/clean.
+        log "git pull --ff-only origin $BRANCH (ничего не удаляет; при конфликте — продолжим с текущим кодом)"
+        if ! run git -C "$APPS_ROOT" pull --ff-only origin "$BRANCH"; then
+            warn "git pull не удался (локальные изменения или расходящаяся история) — продолжаем с той версией, что есть в $APPS_ROOT"
+        fi
+        log "Код после обновления: $(git -C "$APPS_ROOT" log -1 --oneline 2>/dev/null || echo '?')"
     else
         warn "Каталог $APPS_ROOT без .git — автообновление пропущено"
     fi
@@ -583,12 +719,17 @@ STEP="Шаг 5: install.sh (ops/platform)"
 #   2) путь корня:    $APPS_ROOT
 #   3) куда ставить ops: 2 (/usr/local/bin)
 #   4) Platform CLI: Y (да)
-if ! (
-    cd "$APPS_ROOT"
-    export PATH="$SHIM_DIR:$PATH"
-    printf 's\n%s\n2\nY\n' "$APPS_ROOT" | bash ./install.sh
-); then
-    die "install.sh завершился с ошибкой — см. вывод выше и лог"
+if $LIVE_STACK && [ -f /etc/ops-manager/config.yml ] && [ -x /usr/local/bin/ops ] && command -v platform >/dev/null 2>&1; then
+    log "Обновление: ops/platform и системный конфиг уже установлены — install.sh пропущен"
+    log "(не перетирает настройки и не рестартует docker.socket на живом стеке)"
+else
+    if ! (
+        cd "$APPS_ROOT"
+        export PATH="$SHIM_DIR:$PATH"
+        printf 's\n%s\n2\nY\n' "$APPS_ROOT" | bash ./install.sh
+    ); then
+        die "install.sh завершился с ошибкой — см. вывод выше и лог"
+    fi
 fi
 
 # install.sh не использует set -e — проверяем фактический результат
@@ -631,9 +772,28 @@ fi
 section "ШАГ 6/10. Сборка и запуск core-сервисов (master + caddy)"
 STEP="Шаг 6: запуск core"
 
-log "Запуск restart_core.sh --build (сборка образа master может занять несколько минут)"
-if ! (cd "$APPS_ROOT" && run ./restart_core.sh --build); then
-    die "restart_core.sh завершился с ошибкой. Проверьте вывод выше (сборка образа / docker compose)."
+if $LIVE_STACK; then
+    # Без даунтайма: docker compose up --build сначала собирает новый образ,
+    # пока старый контейнер продолжает работать, и лишь затем пересоздаёт его
+    # (секунды недоступности вместо минут на время сборки). Никаких `down`.
+    COMPOSE_ENV_ARGS=()
+    [ -f "$ENV_FILE" ] && COMPOSE_ENV_ARGS+=(--env-file "$ENV_FILE")
+    log "Обновление core БЕЗ остановки: сборка master при работающем старом контейнере"
+    if ! run docker compose "${COMPOSE_ENV_ARGS[@]}" -f "$APPS_ROOT/_core/master/docker-compose.yml" up -d --build; then
+        dump_diagnostics
+        die "Пересборка master не удалась — см. диагностику выше"
+    fi
+    run docker compose "${COMPOSE_ENV_ARGS[@]}" -f "$APPS_ROOT/_core/caddy/docker-compose.yml" up -d
+    if docker exec "$CADDY_CONTAINER" caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+        ok "Caddy: конфиг перезагружен без даунтайма"
+    else
+        warn "Caddy reload не удался — конфиг подхватится при старте/через watcher"
+    fi
+else
+    log "Запуск restart_core.sh --build (сборка образа master может занять несколько минут)"
+    if ! (cd "$APPS_ROOT" && run ./restart_core.sh --build); then
+        die "restart_core.sh завершился с ошибкой. Проверьте вывод выше (сборка образа / docker compose)."
+    fi
 fi
 
 log "Ожидание готовности master ($MASTER_URL/healthz), до 180 секунд..."
@@ -1067,6 +1227,8 @@ done
 echo ""
 echo "  Время установки: $((ELAPSED / 60)) мин $((ELAPSED % 60)) сек"
 echo "  Полный лог:      $LOG_FILE"
+echo "  Режим:           $([ "$LIVE_STACK" = true ] && echo 'обновление работающей платформы' || echo 'чистая установка')"
+[ -n "$BACKUP_DIR" ] && echo "  Бэкап состояния: $BACKUP_DIR (откат: восстановить оттуда master.db/services/caddy)"
 echo "  Корень проекта:  $APPS_ROOT"
 echo "  UI платформы:    http://${SERVER_IP:-<ip-сервера>}:8001  (пока без авторизации)"
 if [ -f "$APPS_ROOT/.platform-credentials" ]; then
