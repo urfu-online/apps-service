@@ -38,7 +38,8 @@
 #   обновление:        sudo bash install-server.sh --upgrade-running
 #
 # ОСНОВНЫЕ ОПЦИИ:
-#   --domain NAME        PLATFORM_DOMAIN для .env (по умолчанию localhost)
+#   --domain NAME        PLATFORM_DOMAIN для .env (по умолчанию — из существующего
+#                        /apps/.env, иначе localhost)
 #   --apps-root PATH     корень установки (по умолчанию /apps)
 #   --repo URL           git-репозиторий проекта (по умолчанию origin проекта)
 #   --branch NAME        ветка при clone/pull (по умолчанию main)
@@ -66,7 +67,7 @@ set -Eeuo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 # Глобальные переменные и значения по умолчанию
 # ─────────────────────────────────────────────────────────────────────────────
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.1.1"
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
@@ -84,6 +85,8 @@ UPGRADE_DOCKER=false
 WITH_TEST_SERVICE=false
 LIVE_STACK=false
 BACKUP_DIR=""
+DOMAIN_EXPLICIT=false
+LAST_CMD=""
 
 MASTER_CONTAINER="platform-master"
 CADDY_CONTAINER="caddy"
@@ -133,6 +136,7 @@ die()    { err "$*"; err "Лог: ${LOG_FILE:-<лог ещё не открыт>}
 # Выполняет команду, показывая её перед запуском (идёт и в консоль, и в лог).
 run() {
     echo -e "[$(ts)] ${D}+ $*${N}"
+    LAST_CMD="$*"
     "$@"
 }
 
@@ -164,6 +168,8 @@ expect() { # $1 = название, $2 = детали при успехе, $3...
 # ─────────────────────────────────────────────────────────────────────────────
 on_err() {
     local rc="$1" line="$2" cmd="$3"
+    # Внутри run() BASH_COMMAND == "$@" — подставляем реальную команду.
+    [ "$cmd" = '"$@"' ] && cmd="${LAST_CMD:-$cmd}"
     echo "" >&2
     err "СБОЙ ВЫПОЛНЕНИЯ (exit=$rc) на строке ${line}: ${cmd}"
     err "Шаг: $STEP"
@@ -199,7 +205,7 @@ while [ $# -gt 0 ]; do
         --repo)           REPO_URL="$2"; shift 2 ;;
         --branch)         BRANCH="$2"; shift 2 ;;
         --source)         SOURCE_DIR="$2"; shift 2 ;;
-        --domain)         PLATFORM_DOMAIN="$2"; shift 2 ;;
+        --domain)         PLATFORM_DOMAIN="$2"; DOMAIN_EXPLICIT=true; shift 2 ;;
         --acme-email)     ACME_EMAIL="$2"; shift 2 ;;
         --upgrade-running) UPGRADE_RUNNING=true; shift ;;
         --upgrade-docker) UPGRADE_DOCKER=true; shift ;;
@@ -240,8 +246,20 @@ exec > >(tee >(strip_ansi >> "$LOG_FILE")) 2>&1
 
 TMP_DIR=$(mktemp -d /tmp/install-server.XXXXXX)
 
+# Домен: если не задан явно через --domain — берём из существующего .env платформы.
+# При обновлении работающей установки её домен меняться не должен (в т.ч.
+# apps.openedu.urfu.ru и подобные).
+DOMAIN_SOURCE="по умолчанию/из опций"
+if ! $DOMAIN_EXPLICIT && [ -f "$APPS_ROOT/.env" ]; then
+    EXISTING_DOMAIN=$(grep '^PLATFORM_DOMAIN=' "$APPS_ROOT/.env" | tail -1 | cut -d= -f2- | tr -d ' "')
+    if [ -n "$EXISTING_DOMAIN" ]; then
+        PLATFORM_DOMAIN="$EXISTING_DOMAIN"
+        DOMAIN_SOURCE="из существующего $APPS_ROOT/.env"
+    fi
+fi
+
 log "Лог-файл: $LOG_FILE"
-log "Версия скрипта: $SCRIPT_VERSION | root: $APPS_ROOT | domain: $PLATFORM_DOMAIN"
+log "Версия скрипта: $SCRIPT_VERSION | root: $APPS_ROOT | domain: $PLATFORM_DOMAIN ($DOMAIN_SOURCE)"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Вспомогательные функции
@@ -562,14 +580,26 @@ if ! "$PY_BIN" -m pip --version >/dev/null 2>&1; then
     log "pip для $PY_BIN не найден — поднимаем через ensurepip"
     run "$PY_BIN" -m ensurepip --upgrade
 fi
-run "$PY_BIN" -m pip install --quiet --upgrade pip setuptools wheel
+
+# PEP 668 (Ubuntu 24.04+): системный Python помечен EXTERNALLY-MANAGED и pip
+# отказывается ставить пакеты в системное окружение. Наши операции этому не
+# противоречат — ставим только в /opt/pipx (--target), но для совместимости
+# добавляем --break-system-packages лишь когда маркер действительно есть
+# (на 22.04 флаг неизвестен старому pip, а маркера нет — ничего не добавляем).
+PIP_FLAGS=()
+PY_STDLIB=$("$PY_BIN" -c 'import sysconfig; print(sysconfig.get_path("stdlib"))' 2>/dev/null || echo "")
+if [ -n "$PY_STDLIB" ] && [ -f "$PY_STDLIB/EXTERNALLY-MANAGED" ]; then
+    PIP_FLAGS+=(--break-system-packages)
+    log "Python помечен externally-managed (PEP 668) — pip-операции с --break-system-packages (установка только в /opt/pipx)"
+fi
+run "$PY_BIN" -m pip install "${PIP_FLAGS[@]}" --quiet --upgrade pip setuptools wheel
 ok "pip: $("$PY_BIN" -m pip --version 2>/dev/null | head -1)"
 
 # Готовим pipx «приколотый» к нужному интерпретатору: штатный install.sh
 # platform-cli использует `python3`/`pipx`, а системный python3 на 22.04 — 3.10.
 log "Подготовка изолированного pipx (/opt/pipx) под $PY_BIN"
 run install -d -m 0755 /opt/pipx/bin /opt/pipx/venvs
-run "$PY_BIN" -m pip install --quiet --target /opt/pipx/pipx-installer pipx
+run "$PY_BIN" -m pip install "${PIP_FLAGS[@]}" --quiet --target /opt/pipx/pipx-installer pipx
 cat > /opt/pipx/bin/pipx <<PIPX_EOF
 #!/bin/bash
 # Managed by install-server.sh — pipx, закреплённый на Python $PY_BIN.
