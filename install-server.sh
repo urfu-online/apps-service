@@ -522,6 +522,9 @@ fi
 [ -f "$APPS_ROOT/_core/master/docker-compose.yml" ] \
     || die "После развёртывания в $APPS_ROOT нет _core/master/docker-compose.yml — структура проекта повреждена"
 ok "Исходники проекта на месте: $APPS_ROOT"
+if [ -d "$APPS_ROOT/.git" ]; then
+    log "Развёрнутый код: $(git -C "$APPS_ROOT" log -1 --oneline 2>/dev/null || echo '<git недоступен>')"
+fi
 
 # --- Runtime-структура (в git не хранится) ---
 log "Создание runtime-каталогов и артефактов"
@@ -590,7 +593,7 @@ fi
 
 # install.sh не использует set -e — проверяем фактический результат
 if [ -f /etc/ops-manager/config.yml ]; then
-    res PASS "Системный конфиг /etc/ops-manager/config.yml" "$(grep project_root /etc/ops-manager/config.yml | tr -d ' ')"
+    res PASS "Системный конфиг /etc/ops-manager/config.yml" "$(grep '^project_root' /etc/ops-manager/config.yml | tr -d ' ')"
 else
     res FAIL "Системный конфиг /etc/ops-manager/config.yml" "файл не создан"
 fi
@@ -634,16 +637,38 @@ if ! (cd "$APPS_ROOT" && run ./restart_core.sh --build); then
 fi
 
 log "Ожидание готовности master ($MASTER_URL/healthz), до 180 секунд..."
-if OUT=$(wait_http "$MASTER_URL/healthz" 180); then
+MASTER_UP=false
+MASTER_FAIL_REASON=""
+for _ in $(seq 1 60); do
+    MSTATE=$(docker inspect -f '{{.State.Status}}|{{.RestartCount}}|{{.State.ExitCode}}' "$MASTER_CONTAINER" 2>/dev/null || echo "missing|0|0")
+    MSTATUS="${MSTATE%%|*}"
+    if [ "$MSTATUS" = "missing" ]; then
+        MASTER_FAIL_REASON="контейнер $MASTER_CONTAINER не найден"
+        break
+    fi
+    if [ "$MSTATUS" != "running" ]; then
+        MASTER_FAIL_REASON="контейнер $MASTER_CONTAINER в состоянии '$MSTATUS' (exit=${MSTATE##*|}) — вероятно, падает при старте"
+        break
+    fi
+    CODE=$(http_code "$MASTER_URL/healthz")
+    if [ "$CODE" = "200" ]; then
+        MASTER_UP=true
+        break
+    fi
+    sleep 3
+done
+
+if $MASTER_UP; then
     res PASS "Master отвечает на /healthz" "$MASTER_URL/healthz"
 else
-    res FAIL "Master отвечает на /healthz" "$OUT"
-    hint "docker logs -f $MASTER_CONTAINER --tail 100"
-    die "Master не поднялся — без него дальнейшие проверки бессмысленны"
+    [ -n "$MASTER_FAIL_REASON" ] || MASTER_FAIL_REASON="тайм-аут 180s, последний HTTP-код: $CODE"
+    res FAIL "Master отвечает на /healthz" "$MASTER_FAIL_REASON"
+    dump_diagnostics
+    die "Master не поднялся — без него дальнейшие проверки бессмысленны. Диагностика выше (docker logs $MASTER_CONTAINER)."
 fi
 
 if OUT=$(wait_http "$MASTER_URL/readyz" 60); then
-    READY_BODY=$(curl -s -m 10 "$MASTER_URL/readyz" || true)
+    READY_BODY=$(curl -s --noproxy '*' -m 10 "$MASTER_URL/readyz" || true)
     res PASS "Master готов (/readyz 200)" "$(echo "$READY_BODY" | tr '\n' ' ' | cut -c1-200)"
 else
     res FAIL "Master готов (/readyz 200)" "$OUT"
@@ -723,7 +748,7 @@ fi
 
 # smoke-проверка авторизованного API
 if [ -n "$ADMIN_UID" ]; then
-    CODE=$(curl -s -o "$TMP_DIR/api_services.json" -w '%{http_code}' -m 10 \
+    CODE=$(curl -s --noproxy '*' -o "$TMP_DIR/api_services.json" -w '%{http_code}' -m 10 \
         -H "Authorization: Bearer $ADMIN_UID" "$MASTER_URL/api/services/")
     if [ "$CODE" = "200" ]; then
         res PASS "API /api/services/ доступен с Bearer-токеном" "HTTP 200"
@@ -851,21 +876,28 @@ NGX_EOF
         hint "docker logs $MASTER_CONTAINER 2>&1 | grep -i -E 'discovery|caddy|error'"
     fi
 
-    # Маршрутизация через Caddy: subfolder на localhost, HTTP (без TLS)
-    log "Проверка маршрута http://127.0.0.1${TEST_PATH}/ (Host: localhost)"
+    # Маршрутизация через Caddy. В prod для сайта localhost Caddy открывает
+    # ТОЛЬКО :443 (внутренний CA, auto_https), :80 может не слушаться вовсе —
+    # поэтому пробуем HTTP и HTTPS (проверено: https://localhost<путь>/ -> 200).
+    log "Проверка маршрута через Caddy (HTTP и HTTPS, Host: localhost)"
     ROUTED=false
+    ROUTE_VIA=""
     LAST_CODE=""
     for _ in $(seq 1 20); do
-        LAST_CODE=$(curl -s -o "$TMP_DIR/smoke_body.txt" -w '%{http_code}' -m 10 \
+        LAST_CODE=$(curl -s --noproxy '*' -o "$TMP_DIR/smoke_body.txt" -w '%{http_code}' -m 10 \
             -H "Host: localhost" "http://127.0.0.1${TEST_PATH}/" 2>/dev/null) || LAST_CODE="000"
         if [ "$LAST_CODE" = "200" ] && grep -q "$TEST_MARKER" "$TMP_DIR/smoke_body.txt" 2>/dev/null; then
-            ROUTED=true
-            break
+            ROUTED=true; ROUTE_VIA="HTTP :80"; break
+        fi
+        LAST_CODE=$(curl -sk --noproxy '*' -o "$TMP_DIR/smoke_body.txt" -w '%{http_code}' -m 10 \
+            "https://localhost${TEST_PATH}/" 2>/dev/null) || LAST_CODE="000"
+        if [ "$LAST_CODE" = "200" ] && grep -q "$TEST_MARKER" "$TMP_DIR/smoke_body.txt" 2>/dev/null; then
+            ROUTED=true; ROUTE_VIA="HTTPS :443 (внутренний CA)"; break
         fi
         sleep 3
     done
     if $ROUTED; then
-        res PASS "Маршрут через Caddy работает (${TEST_PATH}/)" "HTTP 200, тело содержит $TEST_MARKER"
+        res PASS "Маршрут через Caddy работает (${TEST_PATH}/)" "HTTP 200 через $ROUTE_VIA, тело содержит $TEST_MARKER"
     else
         res FAIL "Маршрут через Caddy работает (${TEST_PATH}/)" "HTTP $LAST_CODE, тело: $(head -c 120 "$TMP_DIR/smoke_body.txt" 2>/dev/null)"
         hint "docker exec caddy caddy validate --config /etc/caddy/Caddyfile"
@@ -874,7 +906,7 @@ NGX_EOF
 
     # То же с заголовком Host: $PLATFORM_DOMAIN (если домен отличается от localhost)
     if [ "$PLATFORM_DOMAIN" != "localhost" ]; then
-        ALT_CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 10 \
+        ALT_CODE=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' -m 10 \
             -H "Host: $PLATFORM_DOMAIN" "http://127.0.0.1${TEST_PATH}/" 2>/dev/null) || ALT_CODE="000"
         res WARN "Маршрут с Host: $PLATFORM_DOMAIN" "HTTP $ALT_CODE (subfolder smoke-test привязан к localhost; для прод-домена создайте сервис с base_domain: $PLATFORM_DOMAIN)"
     fi
@@ -918,7 +950,7 @@ CODE=$(http_code "$MASTER_URL/"); [ "$CODE" = "200" ] \
     || res FAIL "Веб-интерфейс UI на :8001" "HTTP $CODE"
 
 # 9.4 Caddy admin API + валидность конфига
-if curl -fsS -m 10 "$CADDY_ADMIN_URL/config/" > "$TMP_DIR/caddy_config.json" 2>/dev/null; then
+if curl -fsS --noproxy '*' -m 10 "$CADDY_ADMIN_URL/config/" > "$TMP_DIR/caddy_config.json" 2>/dev/null; then
     res PASS "Caddy admin API ($CADDY_ADMIN_URL)" "конфиг отдан"
 else
     res FAIL "Caddy admin API ($CADDY_ADMIN_URL)" "не отвечает (порт 2019 слушается только на 127.0.0.1)"
@@ -931,7 +963,7 @@ fi
 
 # 9.5 Discovery: сервис виден через API
 if [ -n "$ADMIN_UID" ] && ! $SKIP_TEST_SERVICE; then
-    curl -s -m 10 -H "Authorization: Bearer $ADMIN_UID" "$MASTER_URL/api/services/" > "$TMP_DIR/api_services2.json" || true
+    curl -s --noproxy '*' -m 10 -H "Authorization: Bearer $ADMIN_UID" "$MASTER_URL/api/services/" > "$TMP_DIR/api_services2.json" || true
     if grep -q "$TEST_SERVICE" "$TMP_DIR/api_services2.json" 2>/dev/null; then
         res PASS "Discovery: $TEST_SERVICE виден в /api/services/" "OK"
     else
@@ -939,7 +971,7 @@ if [ -n "$ADMIN_UID" ] && ! $SKIP_TEST_SERVICE; then
     fi
 
     # 9.6 Health-функция: API отвечает и выполняет проверку
-    curl -s -m 15 -H "Authorization: Bearer $ADMIN_UID" \
+    curl -s --noproxy '*' -m 15 -H "Authorization: Bearer $ADMIN_UID" \
         "$MASTER_URL/api/health/service/$TEST_SERVICE" > "$TMP_DIR/api_health.json" || true
     if grep -q 'is_healthy' "$TMP_DIR/api_health.json" 2>/dev/null; then
         HEALTH_VAL=$(grep -o '"is_healthy":[^,]*' "$TMP_DIR/api_health.json" | head -1)
@@ -1003,10 +1035,13 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ШАГ 10. Итоговый отчёт
+# ШАГ 10. Диагностика окружения + итоговый отчёт
 # ─────────────────────────────────────────────────────────────────────────────
-section "ШАГ 10/10. Итоговый отчёт"
+section "ШАГ 10/10. Диагностика окружения и итоговый отчёт"
 STEP="Шаг 10: отчёт"
+
+# Полный срез состояния в лог — чтобы любой сбой можно было разобрать постфактум.
+dump_diagnostics
 
 SERVER_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
 ELAPSED=$(( $(date +%s) - BOOTSTRAP_STARTED_AT ))
