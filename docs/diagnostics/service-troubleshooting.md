@@ -40,6 +40,7 @@
 | 7 | Контейнеры не запущены / не задеплоены | Ошибка сборки или деплоя | А2 |
 | 8 | Сайт открывается, но API падает | `CORS_ORIGINS` не содержит боевой домен; `KEYCLOAK_REDIRECT_URI` указывает на localhost | А10 |
 | 9 | curl работает, браузер нет | Клиентский прокси/кэш/HSTS/расширения | Б0, Б7 |
+| 10 | Пропали маршруты НЕСКОЛЬКИХ сервисов сразу | Манифест(ы) не прошли валидацию `ServiceManifest` и **молча отброшены** discovery'ем; master перегенерировал Caddy без них. Исторически: `backup.enabled: true` без `KOPIA_*` в окружении master, лишние поля в `backup:` (`extra`), неизвестные `routing[].type` (например `path`) | А6b |
 
 ## 3. Блок А — диагностика на сервере
 
@@ -87,6 +88,14 @@ curl -s -w '\nHTTP %{http_code}\n' "http://localhost:8001/api/tls/validate?domai
 curl -s http://localhost:8001/api/tls/allowed | grep <SERVICE_DOMAIN>
 ```
 `200` → Caddy может выпускать сертификат. `403` → master не знает домен (discovery не увидел сервис; рестарт master, логи). Master недоступен → проверять `docker ps` и маппинг портов.
+
+### А6b. Discovery: манифест загружен master'ом (канарейка инцидента)
+```bash
+docker logs platform-master --since 24h 2>&1 | grep -i "error loading" | tail -20
+# сервисы, которые master реально видит (нужен токен — id пользователя):
+curl -s -H "Authorization: Bearer <API_TOKEN>" http://localhost:8001/api/services/ | grep -o '"name": *"[^"]*"'
+```
+`Error loading .../service.yml` → манифест **отброшен целиком**, сервис пропал из Caddy-маршрутов. В сообщении валидации — точная причина (например `backup.enabled` требует `KOPIA_REPOSITORY`/`KOPIA_REPOSITORY_PASSWORD` в окружении master; лишние поля в `backup:`; `routing[].type` вне `domain|subfolder|port|auto_subdomain`). После исправления `service.yml` watcher пересканирует сервис сам, без рестарта.
 
 ### А7. Сертификат в хранилище Caddy
 ```bash
@@ -183,27 +192,30 @@ curl -s --noproxy '*' -o /dev/null -w '%{http_code}\n' "https://<REFERENCE_DOMAI
 | Скрипт | Где запускать | Что делает |
 |---|---|---|
 | `diagnose-client.sh` | на клиенте (рабочая машина) | DNS → TCP → TLS → HTTP без прокси → эталон → вердикт |
-| `diagnose-server.sh` | на сервере (нужен Docker) | манифест → контейнеры → сеть → маршрут Caddy → upstream → master TLS → сертификат → логи → локальный HTTPS → CORS |
+| `diagnose-server.sh` | на сервере (нужен Docker) | манифест → контейнеры → сеть → маршрут Caddy → upstream → master TLS → discovery (А6b) → сертификат → логи → локальный HTTPS → CORS |
+| `diagnose-all.sh` | на сервере | пройтись по всем сервисам из `/apps/services` (запускает diagnose-server.sh по одному на каждый) + итоговая таблица |
 
-Оба: вывод со статусами `✔ OK / ✘ FAIL / ⚠ WARN`, пояснение после каждой проверки, итоговый вердикт. **Read-only.**
+Оба основных: вывод со статусами `✔ OK / ✘ FAIL / ⚠ WARN`, пояснение после каждой проверки, итоговый вердикт, код выхода 1 при наличии FAIL. **Read-only.**
 
 Запуск:
 ```bash
 # Клиент:
-SERVICE_DOMAIN=urfu-forms.apps.urfu.online \
-REFERENCE_DOMAIN=course-archive-explorer.apps.urfu.online \
+SERVICE_DOMAIN=help.openedu.urfu.ru \
+REFERENCE_DOMAIN=urfu.space \
   bash docs/diagnostics/diagnose-client.sh
 
-# Сервер (минимум):
-SERVICE_NAME=urfu-forms \
-SERVICE_DOMAIN=urfu-forms.apps.urfu.online \
-  bash docs/diagnostics/diagnose-server.sh
+# Сервер (минимум — достаточно ИМЕНИ или ДОМЕНА; манифест ищется по домену):
+SERVICE_NAME=support bash docs/diagnostics/diagnose-server.sh
+SERVICE_DOMAIN=help.openedu.urfu.ru bash docs/diagnostics/diagnose-server.sh
+
+# Сервер: все сервисы сразу (после деплоя — быстрая сводка):
+bash docs/diagnostics/diagnose-all.sh
 
 # Сервер (полный набор, если автоопределение не сработало):
-SERVICE_NAME=urfu-forms \
-SERVICE_DOMAIN=urfu-forms.apps.urfu.online \
-CONTAINER_NAME=urfu_forms_frontend \
-INTERNAL_PORT=80 \
+SERVICE_NAME=support \
+SERVICE_DOMAIN=help.openedu.urfu.ru \
+CONTAINER_NAME=support-zammad-web \
+INTERNAL_PORT=3000 \
 SERVICES_ROOT=/apps/services \
   bash docs/diagnostics/diagnose-server.sh
 ```
@@ -220,3 +232,4 @@ SERVICES_ROOT=/apps/services \
 | HTTPS 403 Access Denied | — | `visibility: internal` → перенести в `services/internal/` или сменить на public |
 | HTTPS 2xx | всё OK | Сервис работает; проблема в браузере/прокси клиента (Б0, Б7) |
 | HTTPS 2xx, но API падает | CORS/REDIRECT warn | Обновить `CORS_ORIGINS`, `KEYCLOAK_REDIRECT_URI` на боевой домен |
+| HTTPS 404 от Caddy (`Service not found`) | маршрут FAIL + `Error loading` в логах master | Манифест отброшен валидацией → исправить `service.yml` (А6b); watcher пересканирует сам |

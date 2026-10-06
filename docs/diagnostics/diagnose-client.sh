@@ -128,10 +128,10 @@ if [ "$SKIP_TCP_CHECK" != "1" ]; then
   fi
   step "TCP-доступность порта 80 (информационно)"
   if timeout 5 bash -c "exec 3<>/dev/tcp/$SERVICE_DOMAIN/80" 2>/dev/null; then
-    info "порт 80 открыт"
+    info "порт 80 открыт (Caddy отвечает и по http, обычно с редиректом на https)"
   else
-    info "порт 80 закрыт — ЭТО ОЖИДАЕМО: платформа слушает только :443 (automatic_https disable_redirects)"
-    hint "Всегда заходить по https:// ; http:// даст connection refused."
+    info "порт 80 закрыт — часто ожидаемо: для localhost-сайтов Caddy не открывает :80 вообще"
+    hint "Всегда заходить по https:// ; по http:// возможен connection refused."
   fi
 fi
 
@@ -232,4 +232,6 @@ elif [ "${HTTP_CODE#2}" != "$HTTP_CODE" ] || [ "${HTTP_CODE#3}" != "$HTTP_CODE" 
 else
   echo "  ℹ Приложение отвечает HTTP $HTTP_CODE — Caddy работает, разбирайтесь с приложением."
 fi
+# Код выхода: 0 — без FAIL (WARN допустимы), 1 — есть FAIL.
+[ "$FAIL" -gt 0 ] && exit 1
 exit 0

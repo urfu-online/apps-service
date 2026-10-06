@@ -6,15 +6,20 @@
 # Выполняются команды чтения: docker ps/inspect/logs/network inspect, ls/find,
 # grep и HTTP GET-пробы (curl/wget).
 #
-# ЗАПУСК (минимум — SERVICE_NAME и/или SERVICE_DOMAIN):
-#   SERVICE_NAME=urfu-forms SERVICE_DOMAIN=urfu-forms.apps.urfu.online \
-#     bash diagnose-server.sh
+# ЗАПУСК (минимум — SERVICE_NAME или SERVICE_DOMAIN):
+#   SERVICE_NAME=support bash diagnose-server.sh
+#   SERVICE_DOMAIN=help.openedu.urfu.ru bash diagnose-server.sh
+#
+# Имя сервиса часто НЕ совпадает с первой меткой домена (support ->
+# help.openedu.urfu.ru), поэтому манифест ищется ПО ДОМЕНУ в routing[].
+# Из манифеста автоматически берутся: имя, домен, тип роутинга (domain/
+# auto_subdomain/subfolder/port), container_name, internal_port, путь.
 #
 # Полный набор (если автоопределение не сработает):
-#   SERVICE_NAME=urfu-forms \
-#   SERVICE_DOMAIN=urfu-forms.apps.urfu.online \
-#   CONTAINER_NAME=urfu_forms_frontend \
-#   INTERNAL_PORT=80 \
+#   SERVICE_NAME=support \
+#   SERVICE_DOMAIN=help.openedu.urfu.ru \
+#   CONTAINER_NAME=support-zammad-web \
+#   INTERNAL_PORT=3000 \
 #   SERVICES_ROOT=/apps/services \
 #     bash diagnose-server.sh
 #
@@ -35,6 +40,9 @@ CONTAINER_NAME="${CONTAINER_NAME:-}"
 INTERNAL_PORT="${INTERNAL_PORT:-}"
 SERVICES_ROOT="${SERVICES_ROOT:-/apps/services}"
 SERVICE_DIR="${SERVICE_DIR:-}"
+SERVICE_PATH="${SERVICE_PATH:-}"          # для subfolder-роутинга (/sentry и т.п.)
+ROUTE_TYPE="${ROUTE_TYPE:-}"              # domain | auto_subdomain | subfolder | port
+PLATFORM_API_TOKEN="${PLATFORM_API_TOKEN:-${API_TOKEN:-}}"  # для /api/services (опционально)
 
 # ------------------ Платформенные константы ---------------------------------
 CADDY_CONTAINER="${CADDY_CONTAINER:-caddy}"
@@ -66,7 +74,7 @@ cmdout()  { printf '%s\n' "$1" | sed 's/^/    | /'; }
 caddy_admin_get() {
   local out=""
   if command -v curl >/dev/null 2>&1; then
-    out=$(curl -s -m 5 "$CADDY_ADMIN_URL/config/" 2>/dev/null || true)
+    out=$(curl -s --noproxy '*' -m 5 "$CADDY_ADMIN_URL/config/" 2>/dev/null || true)
     [ -n "$out" ] && { printf '%s' "$out"; return 0; }
   fi
   out=$(docker exec "$CADDY_CONTAINER" sh -c "wget -qO- -T 5 http://127.0.0.1:2019/config/" 2>/dev/null || true)
@@ -80,8 +88,10 @@ M_CODE=""; M_BODY=""
 master_api() {
   local path="$1" out=""
   M_CODE=""; M_BODY=""
+  local auth_args=()
+  [ -n "$PLATFORM_API_TOKEN" ] && auth_args=(-H "Authorization: Bearer $PLATFORM_API_TOKEN")
   if command -v curl >/dev/null 2>&1; then
-    out=$(curl -s -m 5 -w $'\n%{http_code}' "$MASTER_API_URL$path" 2>/dev/null || true)
+    out=$(curl -s --noproxy '*' -m 5 "${auth_args[@]}" -w $'\n%{http_code}' "$MASTER_API_URL$path" 2>/dev/null || true)
     if [ -n "$out" ] && [ "${out##*$'\n'}" != "$out" ]; then
       M_CODE="${out##*$'\n'}"; M_BODY="${out%$'\n'*}"; return 0
     fi
@@ -117,34 +127,107 @@ FLAG_ROUTE=0; FLAG_DIAL=0; FLAG_UPSTREAM=0; FLAG_VALIDATE=0; FLAG_CERT=0; FLAG_L
 # =============================================================================
 section "ПРЕДВАРИТЕЛЬНАЯ ПРОВЕРКА"
 
-# Автоопределение переменных
-[ -z "$SERVICE_DOMAIN" ] && [ -n "$SERVICE_NAME" ] && SERVICE_DOMAIN="${SERVICE_NAME}.${BASE_DOMAIN}"
-if [ -z "$SERVICE_NAME" ] && [ -n "$SERVICE_DOMAIN" ]; then
-  SERVICE_NAME="${SERVICE_DOMAIN%%.*}"
+# --- Автоопределение сервиса -------------------------------------------------
+# Имя сервиса часто НЕ совпадает с первой меткой домена (support ->
+# help.openedu.urfu.ru), поэтому манифест ищется по домену внутри routing[].
+
+find_by_domain() {
+  local domain="$1" d
+  for d in "$SERVICES_ROOT"/public/*/ "$SERVICES_ROOT"/internal/*/; do
+    [ -f "$d/service.yml" ] || continue
+    if grep -qE "(domain|base_domain):[[:space:]]*[\"']?${domain}[\"']?[[:space:]]*$" "$d/service.yml"; then
+      printf '%s' "${d%/}"; return 0
+    fi
+  done
+  return 1
+}
+
+if [ -z "$SERVICE_DIR" ] && [ -n "$SERVICE_DOMAIN" ]; then
+  SERVICE_DIR=$(find_by_domain "$SERVICE_DOMAIN" || true)
 fi
-if [ -z "$SERVICE_DOMAIN" ]; then
-  echo "ОШИБКА: не задан SERVICE_DOMAIN (или SERVICE_NAME + BASE_DOMAIN)."
-  echo "Пример: SERVICE_DOMAIN=urfu-forms.apps.urfu.online bash $0"
-  exit 2
+# auto_subdomain: домен = {name}.{base_domain} — ищем по паре name+base_domain
+if [ -z "$SERVICE_DIR" ] && [ -n "$SERVICE_DOMAIN" ]; then
+  SPLIT_BASE="${SERVICE_DOMAIN#*.}"
+  SPLIT_NAME="${SERVICE_DOMAIN%%.*}"
+  for d in "$SERVICES_ROOT"/public/*/ "$SERVICES_ROOT"/internal/*/; do
+    [ -f "$d/service.yml" ] || continue
+    if grep -qE "base_domain:[[:space:]]*[\"']?${SPLIT_BASE}[\"']?[[:space:]]*$" "$d/service.yml" \
+       && grep -qE "^name:[[:space:]]*[\"']?${SPLIT_NAME}[\"']?[[:space:]]*$" "$d/service.yml"; then
+      SERVICE_DIR="${d%/}"; break
+    fi
+  done
 fi
-if [ -z "$SERVICE_DIR" ]; then
+if [ -z "$SERVICE_DIR" ] && [ -n "$SERVICE_NAME" ]; then
   for d in "$SERVICES_ROOT/public/$SERVICE_NAME" "$SERVICES_ROOT/internal/$SERVICE_NAME"; do
     if [ -d "$d" ]; then SERVICE_DIR="$d"; break; fi
   done
 fi
-if [ -z "$CONTAINER_NAME" ] && [ -n "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/service.yml" ]; then
-  CONTAINER_NAME=$(grep -m1 'container_name:' "$SERVICE_DIR/service.yml" 2>/dev/null \
-    | sed 's/.*container_name:[[:space:]]*//' | tr -d "\"'" | xargs || true)
+
+# Из манифеста добираем имя, тип роутинга, путь, контейнер и порт.
+if [ -n "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/service.yml" ]; then
+  MFILE="$SERVICE_DIR/service.yml"
+  if [ -z "$SERVICE_NAME" ]; then
+    SERVICE_NAME=$(grep -m1 '^name:' "$MFILE" | sed 's/.*name:[[:space:]]*//' | tr -d "\"'" | xargs || true)
+  fi
+  if [ -z "$ROUTE_TYPE" ]; then
+    ROUTE_TYPE=$(awk '/^routing:/{f=1;next} /^[a-z]/{if(f)exit} f && /type:/{sub(/.*type:[[:space:]]*/,""); print; exit}' "$MFILE" | cut -d'#' -f1 | tr -d "\"' " || true)
+  fi
+  if [ -z "$SERVICE_PATH" ]; then
+    SERVICE_PATH=$(awk '/^routing:/{f=1;next} /^[a-z]/{if(f)exit} f && /path:/{sub(/.*path:[[:space:]]*/,""); print; exit}' "$MFILE" | cut -d'#' -f1 | tr -d "\"'" | xargs || true)
+  fi
+  MANIFEST_BASE=$(grep -m1 -E '^[[:space:]]*base_domain:' "$MFILE" | sed 's/.*base_domain:[[:space:]]*//' | tr -d "\"'" | xargs || true)
+  # container_name/internal_port берём по НЕзакомментированным строкам и только
+  # если значения в манифесте уникальны
+  if [ -z "$CONTAINER_NAME" ]; then
+    CN=$(grep -v '^[[:space:]]*#' "$MFILE" | grep -oE 'container_name:[[:space:]]*[^[:space:]#]+' \
+      | sed 's/.*container_name:[[:space:]]*//' | tr -d "\"'" | sort -u || true)
+    [ "$(printf '%s\n' "$CN" | grep -c .)" = "1" ] && CONTAINER_NAME="$CN"
+  fi
+  if [ -z "$INTERNAL_PORT" ]; then
+    IPRT=$(grep -v '^[[:space:]]*#' "$MFILE" | grep -oE 'internal_port:[[:space:]]*[0-9]+' \
+      | grep -oE '[0-9]+' | sort -u || true)
+    [ "$(printf '%s\n' "$IPRT" | grep -c .)" = "1" ] && INTERNAL_PORT="$IPRT"
+  fi
+else
+  MANIFEST_BASE=""
 fi
-if [ -z "$INTERNAL_PORT" ] && [ -n "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/service.yml" ]; then
-  INTERNAL_PORT=$(grep -m1 'internal_port:' "$SERVICE_DIR/service.yml" 2>/dev/null \
-    | sed 's/.*internal_port:[[:space:]]*//' | tr -dc '0-9' || true)
+
+# Домен и URL пробы зависят от типа роутинга.
+PROBE_URL=""
+if [ -n "$ROUTE_TYPE" ] && [ -n "$SERVICE_DIR" ]; then
+  [ -n "$MANIFEST_BASE" ] && BASE_DOMAIN="$MANIFEST_BASE"
+  case "$ROUTE_TYPE" in
+    auto_subdomain)
+      [ -z "$SERVICE_DOMAIN" ] && SERVICE_DOMAIN="${SERVICE_NAME}.${BASE_DOMAIN}" ;;
+    subfolder)
+      [ -z "$SERVICE_DOMAIN" ] && SERVICE_DOMAIN="$BASE_DOMAIN"
+      [ -n "$SERVICE_PATH" ] && PROBE_URL="https://${BASE_DOMAIN}${SERVICE_PATH}/" ;;
+    domain)
+      if [ -z "$SERVICE_DOMAIN" ]; then
+        SERVICE_DOMAIN=$(grep -m1 -E '^[[:space:]]*domain:' "$SERVICE_DIR/service.yml" \
+          | sed 's/.*domain:[[:space:]]*//' | tr -d "\"'" | xargs || true)
+      fi ;;
+    port)
+      [ -z "$INTERNAL_PORT" ] && INTERNAL_PORT=$(grep -v '^[[:space:]]*#' "$SERVICE_DIR/service.yml" \
+        | grep -oE 'port:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -n1 || true)
+      PROBE_URL="http://localhost:${INTERNAL_PORT}/" ;;
+  esac
+fi
+[ -z "$SERVICE_DOMAIN" ] && [ -n "$SERVICE_NAME" ] && SERVICE_DOMAIN="${SERVICE_NAME}.${BASE_DOMAIN}"
+[ -z "$PROBE_URL" ] && PROBE_URL="https://${SERVICE_DOMAIN}/"
+
+if [ -z "$SERVICE_DOMAIN" ]; then
+  echo "ОШИБКА: не задан SERVICE_DOMAIN (или SERVICE_NAME)."
+  echo "Пример: SERVICE_DOMAIN=help.openedu.urfu.ru bash $0"
+  exit 2
 fi
 
 info "Параметры диагностики:"
 info "  SERVICE_NAME    = ${SERVICE_NAME:-<не задан>}"
 info "  SERVICE_DOMAIN  = $SERVICE_DOMAIN"
 info "  BASE_DOMAIN     = $BASE_DOMAIN"
+info "  ROUTE_TYPE      = ${ROUTE_TYPE:-<не определён>}"
+info "  PROBE_URL       = $PROBE_URL"
 info "  CONTAINER_NAME  = ${CONTAINER_NAME:-<не определён>}"
 info "  INTERNAL_PORT   = ${INTERNAL_PORT:-<не определён>}"
 info "  SERVICE_DIR     = ${SERVICE_DIR:-<не найден>}"
@@ -168,8 +251,8 @@ step "Манифест service.yml"
 if [ -n "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/service.yml" ]; then
   ok "манифест найден: $SERVICE_DIR/service.yml"
   VIS=$(grep -m1 'visibility:' "$SERVICE_DIR/service.yml" | sed 's/.*visibility:[[:space:]]*//' | tr -d '"' || true)
-  RTYPE=$(grep -m1 'type:' "$SERVICE_DIR/service.yml" | sed 's/.*type:[[:space:]]*//' | tr -d '"' || true)
-  info "visibility=$VIS, routing type=$RTYPE"
+  RTYPES=$(awk '/^routing:/{f=1;next} /^[a-z]/{if(f)exit} f && /type:/{print $2}' "$SERVICE_DIR/service.yml" | tr '\n' ',' | sed 's/,$//' || true)
+  info "visibility=$VIS, routing types=${RTYPES:-<нет routing>}"
   if grep -q 'container_name:' "$SERVICE_DIR/service.yml"; then
     ok "в routing указан container_name: $CONTAINER_NAME"
   else
@@ -301,6 +384,37 @@ if master_api "/api/tls/allowed"; then
   fi
 fi
 
+# --- А6b: discovery — сервис загружен master'ом --------------------------------
+# Канарейка инцидента «манифест не прошёл валидацию -> сервис пропал из Caddy».
+step "Discovery: сервис загружен master'ом"
+if [ -n "$SERVICE_NAME" ] && docker inspect "$MASTER_CONTAINER" >/dev/null 2>&1; then
+  REJ=$(docker logs "$MASTER_CONTAINER" --since "$LOG_SINCE" 2>&1 | grep -i "Error loading" | grep -i "$SERVICE_NAME" | tail -n 3 || true)
+  if [ -n "$REJ" ]; then
+    fail "master ОТБРАСЫВАЕТ манифест сервиса (Error loading):"
+    cmdout "$REJ"
+    hint "Исправьте service.yml по сообщению валидации; после сохранения watcher пересканирует сам."
+  else
+    ok "в логах master нет 'Error loading' для $SERVICE_NAME"
+  fi
+fi
+if master_api "/api/services/"; then
+  case "$M_CODE" in
+    200)
+      if printf '%s' "$M_BODY" | grep -q "\"$SERVICE_NAME\""; then
+        ok "сервис виден в /api/services/"
+      else
+        fail "сервиса НЕТ в /api/services/ — discovery его не загрузил (см. 'Error loading' выше)"
+      fi ;;
+    401|403)
+      warn "нужна авторизация для /api/services (HTTP $M_CODE) — задайте PLATFORM_API_TOKEN (id пользователя)"
+      hint "Токен: см. /apps/.platform-credentials (API_TOKEN)."
+      ;;
+    *) warn "неожиданный ответ /api/services: HTTP $M_CODE" ;;
+  esac
+else
+  warn "master API недоступен для /api/services"
+fi
+
 # --- А7: сертификат в хранилище Caddy -------------------------------------------
 step "Сертификат для $SERVICE_DOMAIN в хранилище Caddy"
 if docker inspect "$CADDY_CONTAINER" >/dev/null 2>&1; then
@@ -333,15 +447,19 @@ fi
 # --- А9: локальный HTTPS через Caddy (в обход DNS) ---------------------------------
 step "Локальный HTTPS-тест: Caddy → upstream (в обход DNS и прокси)"
 if command -v curl >/dev/null 2>&1; then
-  CODE=$(curl -sk --noproxy '*' --resolve "$SERVICE_DOMAIN:443:127.0.0.1" \
-    -o /dev/null -w '%{http_code}' -m 25 "https://$SERVICE_DOMAIN/" 2>/dev/null || true)
+  RESOLVE_ARG="$SERVICE_DOMAIN:443:127.0.0.1"
+  case "$PROBE_URL" in
+    http://*) RESOLVE_ARG="" ;;   # port-роутинг — без TLS
+  esac
+  CODE=$(curl -sk --noproxy '*' ${RESOLVE_ARG:+--resolve "$RESOLVE_ARG"} \
+    -o /dev/null -w '%{http_code}' -m 25 "$PROBE_URL" 2>/dev/null || true)
   case "$CODE" in
-    000) fail "TLS handshake не проходит даже локально — см. проверки 6, 7, 8" ;;
+    000) fail "TLS handshake не проходит даже локально ($PROBE_URL) — см. проверки 6, 7, 8" ;;
     502|504) fail "Caddy вернул $CODE — upstream недоступен (см. проверку 5)" ;;
     "") fail "пустой ответ — проверьте curl/сеть на хосте" ;;
     *)
       FLAG_LOCAL=1
-      ok "серверная цепочка Caddy→upstream работает через HTTPS (HTTP $CODE)"
+      ok "серверная цепочка Caddy→upstream работает ($PROBE_URL → HTTP $CODE)"
       info "2xx/3xx = успех; 4xx/5xx = ответ самого приложения (проблема в приложении, не в платформе)"
       hint "Если здесь всё OK, а в браузере нет — проблема снаружи: DNS или клиентская сеть/прокси. Запустите diagnose-client.sh." ;;
   esac
@@ -379,13 +497,14 @@ echo
 echo "Вердикт:"
 if [ "$FLAG_ROUTE" -eq 0 ]; then
   echo "  ✘ Маршрут не загружен в Caddy → master не видит сервис."
-  echo "    → Проверьте service.yml, расположение директории, логи master; рестарт master."
+  echo "    → Смотрите проверку 6b (Error loading / отсутствует в /api/services):"
+  echo "      обычно манифест не прошёл валидацию. Иначе — service.yml, рестарт master."
 elif [ "$FLAG_UPSTREAM" -eq 0 ] && [ -n "$CONTAINER_NAME" ]; then
   echo "  ✘ Upstream недоступен из сети Caddy → 502 в браузере."
   echo "    → Добавьте контейнер в platform_network, проверьте container_name/internal_port."
 elif [ "$FLAG_VALIDATE" -eq 0 ]; then
   echo "  ✘ Master отклоняет домен → сертификат не выпустится → SSL-ошибка у клиента."
-  echo "    → Проверьте discovery master'а, рестарт: docker restart $MASTER_CONTAINER."
+  echo "    → Проверьте discovery master'а (проверка 6b), рестарт: docker restart $MASTER_CONTAINER."
 elif [ "$FLAG_LOCAL" -eq 0 ]; then
   echo "  ✘ Локальный HTTPS не проходит → проблема выпуска сертификата."
   echo "    → Смотрите ошибки ACME в логах Caddy (проверка 8)."
@@ -393,4 +512,7 @@ elif [ "$FLAG_LOCAL" -eq 1 ]; then
   echo "  ✔ Серверная цепочка работает. Проблема снаружи сервера:"
   echo "    DNS-запись, клиентская сеть/прокси/браузер. Запустите diagnose-client.sh на клиенте."
 fi
+# Код выхода: 0 — без FAIL (WARN допустимы), 1 — есть FAIL. Удобно для
+# массового прогона (diagnose-all.sh) и автоматизации.
+[ "$FAIL" -gt 0 ] && exit 1
 exit 0
