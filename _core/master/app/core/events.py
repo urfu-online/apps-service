@@ -127,7 +127,7 @@ async def backup_scheduler(manager: KopiaBackupManager, discovery: ServiceDiscov
                 try:
                     await manager.run_backup(service_name)
                     # Применяем политику хранения
-                    retention_days = service.backup_config.retention_days if service.backup_config else 7
+                    retention_days = service.backup.retention_days if service.backup else 7
                     await manager.enforce_retention(service_name, retention_days)
                 except Exception as e:
                     logger.error(f"Failed to backup service '{service_name}': {e}")
@@ -154,7 +154,7 @@ async def get_due_backup_services(discovery: ServiceDiscovery) -> list[tuple[str
     """
     Возвращает список сервисов, для которых наступило время бэкапа согласно расписанию.
 
-    Использует croniter для проверки cron-выражения из backup_config.schedule.
+    Использует croniter для проверки cron-выражения из backup.schedule.
     Сохраняет время последнего запуска в памяти (в production следует использовать БД).
 
     Returns:
@@ -169,10 +169,10 @@ async def get_due_backup_services(discovery: ServiceDiscovery) -> list[tuple[str
         get_due_backup_services._last_run = {}
 
     for service_name, service in discovery.services.items():
-        if not service.backup_config or not service.backup_config.enabled:
+        if not service.backup or not service.backup.enabled:
             continue
 
-        schedule = service.backup_config.schedule
+        schedule = service.backup.schedule
         last_run = get_due_backup_services._last_run.get(service_name)
 
         try:

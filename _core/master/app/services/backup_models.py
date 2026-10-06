@@ -2,10 +2,13 @@
 Модели конфигурации резервного копирования для Kopia.
 """
 import os
+import logging
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 import croniter
 import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class BackupConfig(BaseModel):
@@ -29,7 +32,10 @@ class BackupConfig(BaseModel):
     s3_bucket: Optional[str] = None
     
     model_config = ConfigDict(
-        extra="forbid",  # Запрещаем дополнительные поля
+        # Лишние ключи в секции backup НЕ должны ронять весь манифест:
+        # исключение здесь отбрасывало сервис целиком из discovery, и он
+        # пропадал из Caddy-маршрутов (инцидент: «сервисы упали на проде»).
+        extra="ignore",
         json_schema_extra={
             "example": {
                 "enabled": True,
@@ -62,15 +68,21 @@ class BackupConfig(BaseModel):
     @field_validator("enabled")
     @classmethod
     def validate_env_vars(cls, v: bool, info) -> bool:
-        """Если enabled=True, проверяет наличие переменных окружения KOPIA."""
+        """Если enabled=True, проверяем наличие переменных окружения KOPIA.
+
+        Раньше отсутствие переменных вызывало ValueError, из-за которого ВЕСЬ
+        манифест не загружался discovery'ем и сервис пропадал из маршрутов.
+        Теперь бэкап мягко отключается с предупреждением, а сервис работает.
+        """
         if v:
             repo = os.getenv("KOPIA_REPOSITORY")
             password = os.getenv("KOPIA_REPOSITORY_PASSWORD")
             if not repo or not password:
-                raise ValueError(
-                    "When backup is enabled, both KOPIA_REPOSITORY and "
-                    "KOPIA_REPOSITORY_PASSWORD environment variables must be set"
+                logger.warning(
+                    "backup.enabled=true, но KOPIA_REPOSITORY/KOPIA_REPOSITORY_PASSWORD "
+                    "не заданы — резервное копирование отключено, сервис остаётся в работе"
                 )
+                return False
         return v
     
     @field_validator("storage_type")

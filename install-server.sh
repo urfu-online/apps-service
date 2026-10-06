@@ -1183,6 +1183,21 @@ if [ -n "$ADMIN_UID" ] && ! $SKIP_TEST_SERVICE; then
     fi
 fi
 
+# 9.6b Canary: discovery обязан видеть ВСЕ сервисы из services/. Это ловит
+# класс инцидента «манифест не прошёл валидацию -> сервис пропал из Caddy».
+if [ -n "$ADMIN_UID" ]; then
+    SVC_FILES=$(find "$APPS_ROOT/services" -mindepth 3 -maxdepth 3 -name service.yml 2>/dev/null | wc -l)
+    curl -s --noproxy '*' -m 10 -H "Authorization: Bearer $ADMIN_UID" "$MASTER_URL/api/services/" > "$TMP_DIR/api_services3.json" || true
+    API_COUNT=$(grep -o '"name":' "$TMP_DIR/api_services3.json" 2>/dev/null | wc -l)
+    if [ "$API_COUNT" -ge "$SVC_FILES" ]; then
+        res PASS "Discovery видит все сервисы" "манифестов в services/: $SVC_FILES, в API: $API_COUNT"
+    else
+        res FAIL "Discovery видит все сервисы" "манифестов в services/: $SVC_FILES, в API: $API_COUNT — часть сервисов НЕ загрузилась и выпала из маршрутов"
+        hint "docker logs $MASTER_CONTAINER 2>&1 | grep -i 'Error loading'"
+        hint "причина обычно в service.yml (backup/лишние поля) или KOPIA_* переменных"
+    fi
+fi
+
 # 9.7 CLI
 if ! $SKIP_TEST_SERVICE; then
     if OUT=$(platform list 2>&1) && echo "$OUT" | grep -q "$TEST_SERVICE"; then

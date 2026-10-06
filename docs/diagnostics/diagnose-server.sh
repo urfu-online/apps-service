@@ -25,6 +25,11 @@ set -u -o pipefail
 # ------------------ Сервисозависимые переменные (env переопределяют) --------
 SERVICE_NAME="${SERVICE_NAME:-}"
 SERVICE_DOMAIN="${SERVICE_DOMAIN:-}"
+# Базовый домен: по умолчанию берём PLATFORM_DOMAIN из /apps/.env платформы
+BASE_DOMAIN="${BASE_DOMAIN:-}"
+if [ -z "$BASE_DOMAIN" ] && [ -f /apps/.env ]; then
+  BASE_DOMAIN=$(grep '^PLATFORM_DOMAIN=' /apps/.env | tail -1 | cut -d= -f2- | tr -d ' "')
+fi
 BASE_DOMAIN="${BASE_DOMAIN:-apps.urfu.online}"
 CONTAINER_NAME="${CONTAINER_NAME:-}"
 INTERNAL_PORT="${INTERNAL_PORT:-}"

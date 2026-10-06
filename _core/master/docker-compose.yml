@@ -25,6 +25,16 @@ services:
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-master-service}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_IDS=${TELEGRAM_CHAT_IDS:-[]}
+      # Kopia (бэкапы). Без этих переменных backup.enabled=true в манифестах
+      # сервисов не работает — см. app/services/backup_models.py.
+      - KOPIA_REPOSITORY=${KOPIA_REPOSITORY:-}
+      - KOPIA_REPOSITORY_PASSWORD=${KOPIA_REPOSITORY_PASSWORD:-}
+      - KOPIA_SERVER_URL=${KOPIA_SERVER_URL:-}
+      # Уведомления (Apprise + ntfy)
+      - NTFY_ENABLED=${NTFY_ENABLED:-false}
+      - NTFY_SERVER=${NTFY_SERVER:-}
+      - NTFY_TOPIC=${NTFY_TOPIC:-}
+      - NOTIFY_URLS=${NOTIFY_URLS:-[]}
     volumes:
       - ./master.db:/app/master.db
       - ../../services:/services

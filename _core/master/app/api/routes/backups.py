@@ -76,7 +76,7 @@ async def create_backup(
         raise HTTPException(status_code=404, detail="Service not found")
     
     # Проверяем, что бэкап включен в конфигурации сервиса
-    if not service.backup_config or not service.backup_config.enabled:
+    if not service.backup or not service.backup.enabled:
         raise HTTPException(
             status_code=400, 
             detail=f"Backup disabled for service '{svc}'. Enable it in service configuration."
