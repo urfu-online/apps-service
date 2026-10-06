@@ -67,7 +67,7 @@ set -Eeuo pipefail
 # ─────────────────────────────────────────────────────────────────────────────
 # Глобальные переменные и значения по умолчанию
 # ─────────────────────────────────────────────────────────────────────────────
-SCRIPT_VERSION="1.1.1"
+SCRIPT_VERSION="1.1.2"
 SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 
@@ -592,14 +592,21 @@ if [ -n "$PY_STDLIB" ] && [ -f "$PY_STDLIB/EXTERNALLY-MANAGED" ]; then
     PIP_FLAGS+=(--break-system-packages)
     log "Python помечен externally-managed (PEP 668) — pip-операции с --break-system-packages (установка только в /opt/pipx)"
 fi
-run "$PY_BIN" -m pip install "${PIP_FLAGS[@]}" --quiet --upgrade pip setuptools wheel
+# Обновление pip/setuptools/wheel — строго опционально (best-effort): на
+# Debian/Ubuntu эти пакеты могут принадлежать apt (python3-wheel,
+# python3-setuptools) и pip отказывается их заменять ("RECORD file not found",
+# "installed by debian"). Для наших операций (--target в /opt/pipx) системного
+# pip более чем достаточно — не блокируем установку из-за этого.
+if ! run "$PY_BIN" -m pip install "${PIP_FLAGS[@]}" --quiet --upgrade pip setuptools wheel; then
+    warn "Обновление pip/setuptools/wheel пропущено (пакеты принадлежат apt/pip их не трогает) — используем системный pip"
+fi
 ok "pip: $("$PY_BIN" -m pip --version 2>/dev/null | head -1)"
 
 # Готовим pipx «приколотый» к нужному интерпретатору: штатный install.sh
 # platform-cli использует `python3`/`pipx`, а системный python3 на 22.04 — 3.10.
 log "Подготовка изолированного pipx (/opt/pipx) под $PY_BIN"
 run install -d -m 0755 /opt/pipx/bin /opt/pipx/venvs
-run "$PY_BIN" -m pip install "${PIP_FLAGS[@]}" --quiet --target /opt/pipx/pipx-installer pipx
+run "$PY_BIN" -m pip install "${PIP_FLAGS[@]}" --quiet --upgrade --target /opt/pipx/pipx-installer pipx
 cat > /opt/pipx/bin/pipx <<PIPX_EOF
 #!/bin/bash
 # Managed by install-server.sh — pipx, закреплённый на Python $PY_BIN.
