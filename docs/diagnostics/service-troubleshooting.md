@@ -54,7 +54,8 @@ cat /apps/services/public/<SERVICE_NAME>/service.yml   # или internal/
 
 ### А2. Контейнеры
 ```bash
-docker compose --project-directory /apps/services/public/<SERVICE_NAME> ps
+platform status <SERVICE_NAME>                       # штатный способ
+docker compose --project-directory /apps/services/public/<SERVICE_NAME> ps   # детали
 docker inspect -f '{{.State.Status}}' <CONTAINER_NAME>
 ```
 Все контейнеры должны быть `Up`. Иначе — смотреть `docker compose ... logs`.
@@ -91,8 +92,9 @@ curl -s http://localhost:8001/api/tls/allowed | grep <SERVICE_DOMAIN>
 
 ### А6b. Discovery: манифест загружен master'ом (канарейка инцидента)
 ```bash
+platform list                                        # штатный вид: что видит платформа
 docker logs platform-master --since 24h 2>&1 | grep -i "error loading" | tail -20
-# сервисы, которые master реально видит (нужен токен — id пользователя):
+# то же через API (нужен токен — id пользователя):
 curl -s -H "Authorization: Bearer <API_TOKEN>" http://localhost:8001/api/services/ | grep -o '"name": *"[^"]*"'
 ```
 `Error loading .../service.yml` → манифест **отброшен целиком**, сервис пропал из Caddy-маршрутов. В сообщении валидации — точная причина (например `backup.enabled` требует `KOPIA_REPOSITORY`/`KOPIA_REPOSITORY_PASSWORD` в окружении master; лишние поля в `backup:`; `routing[].type` вне `domain|subfolder|port|auto_subdomain`). После исправления `service.yml` watcher пересканирует сервис сам, без рестарта.

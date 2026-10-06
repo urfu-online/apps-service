@@ -24,6 +24,9 @@
 #     bash diagnose-server.sh
 #
 # Требуется: bash, docker (доступ к docker.sock), curl, openssl.
+# По возможности используются штатные команды платформы (platform CLI):
+# platform list/status/logs — голый docker нужен только для того, что CLI
+# не покрывает (сети, core-контейнеры master/caddy, admin API Caddy).
 # ============================================================================
 set -u -o pipefail
 
@@ -286,6 +289,35 @@ else
   warn "CONTAINER_NAME не определён — проверка статуса контейнера пропущена"
 fi
 
+# --- А2b: штатный CLI платформы (platform) --------------------------------------
+step "Штатный CLI: platform status/list"
+if command -v platform >/dev/null 2>&1; then
+  if [ -n "$SERVICE_NAME" ]; then
+    PS_CLI=$(platform status "$SERVICE_NAME" 2>&1 || true)
+    if printf '%s' "$PS_CLI" | grep -qiE 'running|up|healthy'; then
+      ok "platform status: сервис в состоянии running"
+    else
+      warn "platform status не подтвердил running:"
+      cmdout "$(printf '%s' "$PS_CLI" | tail -n 6)"
+    fi
+  fi
+  if OUT=$(platform list 2>&1); then
+    if [ -n "$SERVICE_NAME" ] && printf '%s' "$OUT" | grep -q "$SERVICE_NAME"; then
+      ok "platform list видит $SERVICE_NAME"
+    elif [ -n "$SERVICE_NAME" ]; then
+      fail "platform list НЕ видит $SERVICE_NAME — discovery не загрузил манифест (см. проверку 6b)"
+    else
+      ok "platform list работает"
+    fi
+  else
+    warn "platform list завершился с ошибкой:"
+    cmdout "$(printf '%s' "$OUT" | tail -n 5)"
+  fi
+else
+  warn "platform CLI не установлен (pipx) — проверка пропущена"
+  hint "Установка: bash /apps/install.sh или см. docs/README.md."
+fi
+
 # --- А3: docker-сеть ---------------------------------------------------------
 step "Подключение к сети $PLATFORM_NETWORK"
 if [ -n "$CONTAINER_NAME" ] && docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
@@ -319,7 +351,7 @@ else
     ok "домен $SERVICE_DOMAIN присутствует в конфиге Caddy"
   else
     fail "домена $SERVICE_DOMAIN нет в конфиге Caddy"
-    hint "Master не перегенерировал конфиг: проверьте discovery (docker logs $MASTER_CONTAINER | grep -i $SERVICE_NAME), валидность service.yml."
+    hint "Master не перегенерировал конфиг: проверьте discovery (platform list; docker logs $MASTER_CONTAINER | grep -i $SERVICE_NAME), валидность service.yml."
   fi
   if [ -n "$CONTAINER_NAME" ] && [ -n "$INTERNAL_PORT" ]; then
     DIAL="$CONTAINER_NAME:$INTERNAL_PORT"
@@ -369,7 +401,7 @@ if master_api "/api/tls/validate?domain=$SERVICE_DOMAIN"; then
   case "$M_CODE" in
     200) FLAG_VALIDATE=1; ok "master разрешает выпуск сертификата (HTTP 200): $(printf '%s' "$M_BODY" | head -c 120)" ;;
     403) fail "master ОТКЛОНЯЕТ домен (HTTP 403) — Caddy не сможет выпустить сертификат"
-         hint "Проверьте: сервис обнаружен master'ом? service.yml валиден? Рестарт master: docker restart $MASTER_CONTAINER" ;;
+         hint "Проверьте: сервис обнаружен master'ом (platform list)? service.yml валиден? Рестарт master: docker restart $MASTER_CONTAINER (или ./restart_core.sh)" ;;
     *)   warn "неожиданный ответ master: HTTP $M_CODE — $(printf '%s' "$M_BODY" | head -c 120)" ;;
   esac
 else
@@ -504,7 +536,7 @@ elif [ "$FLAG_UPSTREAM" -eq 0 ] && [ -n "$CONTAINER_NAME" ]; then
   echo "    → Добавьте контейнер в platform_network, проверьте container_name/internal_port."
 elif [ "$FLAG_VALIDATE" -eq 0 ]; then
   echo "  ✘ Master отклоняет домен → сертификат не выпустится → SSL-ошибка у клиента."
-  echo "    → Проверьте discovery master'а (проверка 6b), рестарт: docker restart $MASTER_CONTAINER."
+  echo "    → Проверьте discovery master'а (проверка 6b / platform list), рестарт: docker restart $MASTER_CONTAINER."
 elif [ "$FLAG_LOCAL" -eq 0 ]; then
   echo "  ✘ Локальный HTTPS не проходит → проблема выпуска сертификата."
   echo "    → Смотрите ошибки ACME в логах Caddy (проверка 8)."

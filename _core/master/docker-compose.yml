@@ -23,6 +23,7 @@ services:
       - KEYCLOAK_SERVER_URL=${KEYCLOAK_SERVER_URL:-http://keycloak:8080/auth}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-platform}
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-master-service}
+      # Опционально (в РФ заблокирован — не основной канал; см. NOTIFY_URLS)
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_IDS=${TELEGRAM_CHAT_IDS:-[]}
       # Основные настройки приложения (см. .env.example)
