@@ -25,11 +25,23 @@ services:
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-master-service}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_IDS=${TELEGRAM_CHAT_IDS:-[]}
+      # Основные настройки приложения (см. .env.example)
+      - ENV=${ENV:-dev}
+      - SECRET_KEY=${SECRET_KEY:-}
+      - DEBUG=${DEBUG:-false}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+      - DATA_DIR=${DATA_DIR:-/data}
+      - LOG_CACHE_TTL=${LOG_CACHE_TTL:-30}
+      - LOG_CACHE_SIZE=${LOG_CACHE_SIZE:-5000}
+      - LOG_ENABLE_PERSISTENCE=${LOG_ENABLE_PERSISTENCE:-false}
+      - LOG_STORAGE_PATH=${LOG_STORAGE_PATH:-./.logs_cache}
       # Kopia (бэкапы). Без этих переменных backup.enabled=true в манифестах
       # сервисов не работает — см. app/services/backup_models.py.
       - KOPIA_REPOSITORY=${KOPIA_REPOSITORY:-}
       - KOPIA_REPOSITORY_PASSWORD=${KOPIA_REPOSITORY_PASSWORD:-}
       - KOPIA_SERVER_URL=${KOPIA_SERVER_URL:-}
+      - RESTIC_REPOSITORY=${RESTIC_REPOSITORY:-}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD:-}
       # Уведомления (Apprise + ntfy)
       - NTFY_ENABLED=${NTFY_ENABLED:-false}
       - NTFY_SERVER=${NTFY_SERVER:-}
