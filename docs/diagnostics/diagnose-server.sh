@@ -138,7 +138,8 @@ find_by_domain() {
   local domain="$1" d
   for d in "$SERVICES_ROOT"/public/*/ "$SERVICES_ROOT"/internal/*/; do
     [ -f "$d/service.yml" ] || continue
-    if grep -qE "(domain|base_domain):[[:space:]]*[\"']?${domain}[\"']?[[:space:]]*$" "$d/service.yml"; then
+    if grep -v '^[[:space:]]*#' "$d/service.yml" \
+       | grep -qE "(domain|base_domain):[[:space:]]*[\"']?${domain}[\"']?[[:space:]]*$"; then
       printf '%s' "${d%/}"; return 0
     fi
   done
@@ -173,10 +174,10 @@ if [ -n "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/service.yml" ]; then
     SERVICE_NAME=$(grep -m1 '^name:' "$MFILE" | sed 's/.*name:[[:space:]]*//' | tr -d "\"'" | xargs || true)
   fi
   if [ -z "$ROUTE_TYPE" ]; then
-    ROUTE_TYPE=$(awk '/^routing:/{f=1;next} /^[a-z]/{if(f)exit} f && /type:/{sub(/.*type:[[:space:]]*/,""); print; exit}' "$MFILE" | cut -d'#' -f1 | tr -d "\"' " || true)
+    ROUTE_TYPE=$(awk '/^routing:/{f=1;next} /^[a-z]/{if(f)exit} f && /^[[:space:]]*#/{next} f && /type:/{sub(/.*type:[[:space:]]*/,""); print; exit}' "$MFILE" | cut -d'#' -f1 | tr -d "\"' " || true)
   fi
   if [ -z "$SERVICE_PATH" ]; then
-    SERVICE_PATH=$(awk '/^routing:/{f=1;next} /^[a-z]/{if(f)exit} f && /path:/{sub(/.*path:[[:space:]]*/,""); print; exit}' "$MFILE" | cut -d'#' -f1 | tr -d "\"'" | xargs || true)
+    SERVICE_PATH=$(awk '/^routing:/{f=1;next} /^[a-z]/{if(f)exit} f && /^[[:space:]]*#/{next} f && /path:/{sub(/.*path:[[:space:]]*/,""); print; exit}' "$MFILE" | cut -d'#' -f1 | tr -d "\"'" | xargs || true)
   fi
   MANIFEST_BASE=$(grep -m1 -E '^[[:space:]]*base_domain:' "$MFILE" | sed 's/.*base_domain:[[:space:]]*//' | tr -d "\"'" | xargs || true)
   # container_name/internal_port берём по НЕзакомментированным строкам и только
@@ -193,6 +194,19 @@ if [ -n "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/service.yml" ]; then
   fi
 else
   MANIFEST_BASE=""
+fi
+
+# TCP/порт-сервисы (например imap-proxy) намеренно без routing — HTTP-роутинга
+# у них нет, проверки маршрута/TLS/сертификата неприменимы и не должны быть FAIL.
+NO_HTTP_ROUTE=0
+if [ -n "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/service.yml" ] && ! grep -qE '^routing:' "$SERVICE_DIR/service.yml"; then
+  NO_HTTP_ROUTE=1
+fi
+# container_name как последний шанс — из docker-compose.yml сервиса
+if [ -z "$CONTAINER_NAME" ] && [ -n "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/docker-compose.yml" ]; then
+  CONTAINER_NAME=$(grep -v '^[[:space:]]*#' "$SERVICE_DIR/docker-compose.yml" \
+    | grep -m1 -oE 'container_name:[[:space:]]*[^[:space:]#]+' \
+    | sed 's/.*container_name:[[:space:]]*//' | tr -d "\"'" || true)
 fi
 
 # Домен и URL пробы зависят от типа роутинга.
@@ -231,6 +245,7 @@ info "  SERVICE_DOMAIN  = $SERVICE_DOMAIN"
 info "  BASE_DOMAIN     = $BASE_DOMAIN"
 info "  ROUTE_TYPE      = ${ROUTE_TYPE:-<не определён>}"
 info "  PROBE_URL       = $PROBE_URL"
+[ "$NO_HTTP_ROUTE" = "1" ] && info "  Режим           = TCP/порт-сервис: HTTP-роутинга нет, проверки маршрута/TLS будут пропущены"
 info "  CONTAINER_NAME  = ${CONTAINER_NAME:-<не определён>}"
 info "  INTERNAL_PORT   = ${INTERNAL_PORT:-<не определён>}"
 info "  SERVICE_DIR     = ${SERVICE_DIR:-<не найден>}"
@@ -254,10 +269,12 @@ step "Манифест service.yml"
 if [ -n "$SERVICE_DIR" ] && [ -f "$SERVICE_DIR/service.yml" ]; then
   ok "манифест найден: $SERVICE_DIR/service.yml"
   VIS=$(grep -m1 'visibility:' "$SERVICE_DIR/service.yml" | sed 's/.*visibility:[[:space:]]*//' | tr -d '"' || true)
-  RTYPES=$(awk '/^routing:/{f=1;next} /^[a-z]/{if(f)exit} f && /type:/{print $2}' "$SERVICE_DIR/service.yml" | tr '\n' ',' | sed 's/,$//' || true)
+  RTYPES=$(awk '/^routing:/{f=1;next} /^[a-z]/{if(f)exit} f && /^[[:space:]]*#/{next} f && /type:/{sub(/.*type:[[:space:]]*/,""); print}' "$MFILE" 2>/dev/null | cut -d'#' -f1 | tr -d "\"' " | sort -u | tr '\n' ',' | sed 's/,$//' || true)
   info "visibility=$VIS, routing types=${RTYPES:-<нет routing>}"
   if grep -q 'container_name:' "$SERVICE_DIR/service.yml"; then
     ok "в routing указан container_name: $CONTAINER_NAME"
+  elif [ "$NO_HTTP_ROUTE" = "1" ]; then
+    info "routing отсутствует (порт/TCP-сервис) — container_name в манифесте не требуется"
   else
     fail "в routing НЕТ container_name — Caddy будет проксировать на host.docker.internal (legacy, сломано)"
     hint "Добавьте container_name в routing[] манифеста."
@@ -341,25 +358,37 @@ fi
 
 # --- А4: маршрут в Caddy ------------------------------------------------------
 step "Маршрут $SERVICE_DOMAIN загружен в Caddy"
-CADDY_CFG=$(caddy_admin_get || true)
-if [ -z "$CADDY_CFG" ]; then
-  fail "не удалось получить конфиг Caddy (admin API $CADDY_ADMIN_URL)"
-  hint "Проверьте, что порт 2019 проброшен на хост (127.0.0.1:2019)."
+if [ "$NO_HTTP_ROUTE" = "1" ]; then
+  info "TCP/порт-сервис: HTTP-маршрут не предусмотрен (норма) — проверка пропущена"
 else
-  if printf '%s' "$CADDY_CFG" | grep -q "$SERVICE_DOMAIN"; then
-    FLAG_ROUTE=1
-    ok "домен $SERVICE_DOMAIN присутствует в конфиге Caddy"
+  CADDY_CFG=$(caddy_admin_get || true)
+  if [ -z "$CADDY_CFG" ]; then
+    fail "не удалось получить конфиг Caddy (admin API $CADDY_ADMIN_URL)"
+    hint "Проверьте, что порт 2019 проброшен на хост (127.0.0.1:2019)."
   else
-    fail "домена $SERVICE_DOMAIN нет в конфиге Caddy"
-    hint "Master не перегенерировал конфиг: проверьте discovery (platform list; docker logs $MASTER_CONTAINER | grep -i $SERVICE_NAME), валидность service.yml."
-  fi
-  if [ -n "$CONTAINER_NAME" ] && [ -n "$INTERNAL_PORT" ]; then
-    DIAL="$CONTAINER_NAME:$INTERNAL_PORT"
-    if printf '%s' "$CADDY_CFG" | grep -q "\"dial\":\"$DIAL\""; then
-      FLAG_DIAL=1
-      ok "upstream в конфиге: dial $DIAL"
+    if printf '%s' "$CADDY_CFG" | grep -q "$SERVICE_DOMAIN"; then
+      FLAG_ROUTE=1
+      ok "домен $SERVICE_DOMAIN присутствует в конфиге Caddy"
     else
-      warn "не найден dial $DIAL — проверьте container_name/internal_port в service.yml и перегенерируйте конфиг"
+      fail "домена $SERVICE_DOMAIN нет в конфиге Caddy"
+      hint "Master не перегенерировал конфиг: проверьте discovery (platform list; docker logs $MASTER_CONTAINER | grep -i $SERVICE_NAME), валидность service.yml."
+    fi
+    # Для subfolder дополнительно ищем путь: домен — общий для платформы
+    if [ "$ROUTE_TYPE" = "subfolder" ] && [ -n "$SERVICE_PATH" ]; then
+      if printf '%s' "$CADDY_CFG" | grep -q "$SERVICE_PATH"; then
+        ok "путь $SERVICE_PATH присутствует в конфиге Caddy"
+      else
+        fail "пути $SERVICE_PATH нет в конфиге Caddy — маршрут не сгенерирован"
+      fi
+    fi
+    if [ -n "$CONTAINER_NAME" ] && [ -n "$INTERNAL_PORT" ]; then
+      DIAL="$CONTAINER_NAME:$INTERNAL_PORT"
+      if printf '%s' "$CADDY_CFG" | grep -q "\"dial\":\"$DIAL\""; then
+        FLAG_DIAL=1
+        ok "upstream в конфиге: dial $DIAL"
+      else
+        warn "не найден dial $DIAL — проверьте container_name/internal_port в service.yml и перегенерируйте конфиг"
+      fi
     fi
   fi
 fi
@@ -397,22 +426,36 @@ fi
 
 # --- А6: master — разрешение on-demand TLS -------------------------------------
 step "Master API: /api/tls/validate для $SERVICE_DOMAIN"
-if master_api "/api/tls/validate?domain=$SERVICE_DOMAIN"; then
-  case "$M_CODE" in
-    200) FLAG_VALIDATE=1; ok "master разрешает выпуск сертификата (HTTP 200): $(printf '%s' "$M_BODY" | head -c 120)" ;;
-    403) fail "master ОТКЛОНЯЕТ домен (HTTP 403) — Caddy не сможет выпустить сертификат"
-         hint "Проверьте: сервис обнаружен master'ом (platform list)? service.yml валиден? Рестарт master: docker restart $MASTER_CONTAINER (или ./restart_core.sh)" ;;
-    *)   warn "неожиданный ответ master: HTTP $M_CODE — $(printf '%s' "$M_BODY" | head -c 120)" ;;
-  esac
+if [ "$NO_HTTP_ROUTE" = "1" ]; then
+  info "TCP/порт-сервис: on-demand TLS не используется — проверка пропущена"
 else
-  warn "master API недоступен (host: $MASTER_API_URL, и изнутри контейнера $MASTER_CONTAINER)"
-  hint "Проверьте, что master запущен и порт 8001 проброшен на хост."
-fi
-if master_api "/api/tls/allowed"; then
-  if printf '%s' "$M_BODY" | grep -q "$SERVICE_DOMAIN"; then
-    ok "домен присутствует в /api/tls/allowed"
+  if master_api "/api/tls/validate?domain=$SERVICE_DOMAIN"; then
+    case "$M_CODE" in
+      200) FLAG_VALIDATE=1; ok "master разрешает выпуск сертификата (HTTP 200): $(printf '%s' "$M_BODY" | head -c 120)" ;;
+      403)
+        if [ "$ROUTE_TYPE" = "subfolder" ]; then
+          # Домен subfolder-маршрута — общий (платформенный): master отдаёт 403
+          # на on-demand validate, но это не мешает выдать сертификат для него.
+          FLAG_VALIDATE=1
+          warn "master отклонил домен (HTTP 403) — для subfolder это норма: домен платформенный, on-demand TLS для него не запрашивается"
+        else
+          fail "master ОТКЛОНЯЕТ домен (HTTP 403) — Caddy не сможет выпустить сертификат"
+          hint "Проверьте: сервис обнаружен master'ом (platform list)? service.yml валиден? Рестарт master: docker restart $MASTER_CONTAINER (или ./restart_core.sh)"
+        fi ;;
+      *)   warn "неожиданный ответ master: HTTP $M_CODE — $(printf '%s' "$M_BODY" | head -c 120)" ;;
+    esac
   else
-    warn "домена нет в /api/tls/allowed — master не видит сервис"
+    warn "master API недоступен (host: $MASTER_API_URL, и изнутри контейнера $MASTER_CONTAINER)"
+    hint "Проверьте, что master запущен и порт 8001 проброшен на хост."
+  fi
+  if master_api "/api/tls/allowed"; then
+    if printf '%s' "$M_BODY" | grep -q "$SERVICE_DOMAIN"; then
+      ok "домен присутствует в /api/tls/allowed"
+    elif [ "$ROUTE_TYPE" = "subfolder" ]; then
+      info "домена нет в /api/tls/allowed — для subfolder-маршрутов это норма"
+    else
+      warn "домена нет в /api/tls/allowed — master не видит сервис"
+    fi
   fi
 fi
 
@@ -449,7 +492,9 @@ fi
 
 # --- А7: сертификат в хранилище Caddy -------------------------------------------
 step "Сертификат для $SERVICE_DOMAIN в хранилище Caddy"
-if docker inspect "$CADDY_CONTAINER" >/dev/null 2>&1; then
+if [ "$NO_HTTP_ROUTE" = "1" ]; then
+  info "TCP/порт-сервис: сертификат не нужен — проверка пропущена"
+elif docker inspect "$CADDY_CONTAINER" >/dev/null 2>&1; then
   CERT_PATH=$(docker exec "$CADDY_CONTAINER" sh -c "find /data/caddy/certificates -maxdepth 2 -name '$SERVICE_DOMAIN' 2>/dev/null" 2>/dev/null | head -n1 || true)
   if [ -n "$CERT_PATH" ]; then
     FLAG_CERT=1
@@ -478,7 +523,9 @@ fi
 
 # --- А9: локальный HTTPS через Caddy (в обход DNS) ---------------------------------
 step "Локальный HTTPS-тест: Caddy → upstream (в обход DNS и прокси)"
-if command -v curl >/dev/null 2>&1; then
+if [ "$NO_HTTP_ROUTE" = "1" ]; then
+  info "TCP/порт-сервис: HTTPS-проба неприменима — проверка пропущена"
+elif command -v curl >/dev/null 2>&1; then
   RESOLVE_ARG="$SERVICE_DOMAIN:443:127.0.0.1"
   case "$PROBE_URL" in
     http://*) RESOLVE_ARG="" ;;   # port-роутинг — без TLS
@@ -490,10 +537,14 @@ if command -v curl >/dev/null 2>&1; then
     502|504) fail "Caddy вернул $CODE — upstream недоступен (см. проверку 5)" ;;
     "") fail "пустой ответ — проверьте curl/сеть на хосте" ;;
     *)
-      FLAG_LOCAL=1
-      ok "серверная цепочка Caddy→upstream работает ($PROBE_URL → HTTP $CODE)"
-      info "2xx/3xx = успех; 4xx/5xx = ответ самого приложения (проблема в приложении, не в платформе)"
-      hint "Если здесь всё OK, а в браузере нет — проблема снаружи: DNS или клиентская сеть/прокси. Запустите diagnose-client.sh." ;;
+      if [ "$FLAG_UPSTREAM" -eq 0 ] && [ -n "$CONTAINER_NAME" ]; then
+        fail "HTTP $CODE — это ответ Caddy при недоступном upstream, не приложения (см. проверки 3 и 5)"
+      else
+        FLAG_LOCAL=1
+        ok "серверная цепочка Caddy→upstream работает ($PROBE_URL → HTTP $CODE)"
+        info "2xx/3xx = успех; 4xx/5xx = ответ самого приложения (проблема в приложении, не в платформе)"
+        hint "Если здесь всё OK, а в браузере нет — проблема снаружи: DNS или клиентская сеть/прокси. Запустите diagnose-client.sh."
+      fi ;;
   esac
 fi
 
@@ -527,6 +578,23 @@ section "ИТОГИ"
 printf '  OK: %s   FAIL: %s   WARN: %s\n' "$PASS" "$FAIL" "$WARN"
 echo
 echo "Вердикт:"
+# Причина №1 — контейнер не работает: остальные симптомы лишь следствие.
+if [ -n "$CONTAINER_NAME" ] && docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+  CST=$(docker inspect -f '{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo "?")
+  if [ "$CST" != "running" ]; then
+    echo "  ✘ Контейнер $CONTAINER_NAME в состоянии '$CST' — сервис не работает."
+    echo "    → Поднимите: platform deploy ${SERVICE_NAME:-<имя>} (или docker compose up -d в $SERVICE_DIR)."
+    echo "      Причина остановки: docker logs $CONTAINER_NAME --tail 30."
+    [ "$FAIL" -gt 0 ] && exit 1
+    exit 0
+  fi
+fi
+if [ "$NO_HTTP_ROUTE" = "1" ]; then
+  echo "  ✔ TCP/порт-сервис: HTTP-роутинга нет (намеренно), контейнер работает."
+  echo "    → Проверки маршрута/TLS неприменимы; доступность смотрите по портам сервиса."
+  [ "$FAIL" -gt 0 ] && exit 1
+  exit 0
+fi
 if [ "$FLAG_ROUTE" -eq 0 ]; then
   echo "  ✘ Маршрут не загружен в Caddy → master не видит сервис."
   echo "    → Смотрите проверку 6b (Error loading / отсутствует в /api/services):"

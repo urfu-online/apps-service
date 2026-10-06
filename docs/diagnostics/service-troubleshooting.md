@@ -196,6 +196,7 @@ curl -s --noproxy '*' -o /dev/null -w '%{http_code}\n' "https://<REFERENCE_DOMAI
 | `diagnose-client.sh` | на клиенте (рабочая машина) | DNS → TCP → TLS → HTTP без прокси → эталон → вердикт |
 | `diagnose-server.sh` | на сервере (нужен Docker) | манифест → контейнеры → сеть → маршрут Caddy → upstream → master TLS → discovery (А6b) → сертификат → логи → локальный HTTPS → CORS |
 | `diagnose-all.sh` | на сервере | пройтись по всем сервисам из `/apps/services` (запускает diagnose-server.sh по одному на каждый) + итоговая таблица |
+| `_core/platform-cli/scripts/validate.py` | на сервере | аудит манифестов/контейнеров/сетей: visibility↔папка, container_name, запущенность, platform_network + готовые команды исправления |
 
 Оба основных: вывод со статусами `✔ OK / ✘ FAIL / ⚠ WARN`, пояснение после каждой проверки, итоговый вердикт, код выхода 1 при наличии FAIL. **Read-only.**
 
