@@ -1,7 +1,8 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
 from pydantic import AnyHttpUrl, field_validator, Field
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 from pathlib import Path
+import json
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
@@ -50,7 +51,10 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = Field(
         "", description="Токен Telegram-бота для уведомлений"
     )
-    TELEGRAM_CHAT_IDS: List[str] = Field(
+    # NoDecode: строка из окружения попадает в _parse_str_list как есть
+    # (CSV/одиночная строка/JSON), без предварительного JSON-декодирования
+    # pydantic-settings, которое роняло master с SettingsError.
+    TELEGRAM_CHAT_IDS: Annotated[List[str], NoDecode] = Field(
         [], description="Список chat_id для отправки уведомлений"
     )
 
@@ -63,7 +67,7 @@ class Settings(BaseSettings):
     )
 
     # Apprise notification URLs (for backup notifications)
-    NOTIFY_URLS: List[str] = Field(
+    NOTIFY_URLS: Annotated[List[str], NoDecode] = Field(
         [],
         description="Список URL для отправки уведомлений через Apprise (например, telegram://, mailto://)"
     )
@@ -75,7 +79,7 @@ class Settings(BaseSettings):
     )
 
     # CORS
-    ALLOWED_ORIGINS: List[str] = Field(
+    ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = Field(
         ["*"],
         description="Разрешённые источники CORS (можно использовать '*' для всех)",
     )
@@ -109,16 +113,43 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must be at least 32 characters")
         return v
 
+    @staticmethod
+    def _parse_str_list(v):
+        """Парсит список из окружения.
+
+        pydantic-settings требует JSON для сложных типов, но в .env удобнее
+        писать CSV или одну строку. Принимаем: '' -> [], 'a,b' -> [a, b],
+        '["a","b"]' (JSON) -> [a, b].
+        """
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+            if s.startswith("["):
+                try:
+                    parsed = json.loads(s)
+                    if isinstance(parsed, list):
+                        return [str(x) for x in parsed]
+                except ValueError:
+                    pass  # не JSON — трактуем как CSV
+            return [item.strip() for item in s.split(",") if item.strip()]
+        raise ValueError("ожидается список (CSV или JSON-массив) или строка")
+
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
     def parse_origins(cls, v):
-        if isinstance(v, str):
-            return [item.strip() for item in v.split(",")]
-        if isinstance(v, list):
-            return v
-        raise ValueError(
-            "ALLOWED_ORIGINS must be a comma-separated string or a list of strings"
-        )
+        return cls._parse_str_list(v)
+
+    @field_validator("NOTIFY_URLS", "TELEGRAM_CHAT_IDS", mode="before")
+    @classmethod
+    def parse_str_lists(cls, v):
+        # Без этого валидатора NOTIFY_URLS=ntfy://... в .env роняет master
+        # на старте: SettingsError при парсинге EnvSettingsSource.
+        return cls._parse_str_list(v)
 
     model_config = SettingsConfigDict(
         env_file=".env",
