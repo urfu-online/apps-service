@@ -111,31 +111,25 @@ class ServiceManifest(BaseModel):
         if v is None:
             return v
         if isinstance(v, dict):
-            # Логируем предупреждение, если обнаружены старые поля
-            old_fields = {"retention", "paths", "databases"}
-            if any(field in v for field in old_fields):
+            # Старый формат — только поле retention (переименовано в retention_days).
+            # paths/databases — валидные поля текущей схемы, их "старыми" не считаем.
+            if "retention" in v:
                 logger.warning(
-                    "Обнаружен старый формат backup конфигурации. "
-                    "Используются значения по умолчанию нового формата. "
-                    "Пожалуйста, обновите service.yml в соответствии с документацией."
+                    "Обнаружен старый формат backup конфигурации (retention) — "
+                    "переименовано в retention_days. Обновите service.yml в документации."
                 )
-                # Игнорируем старые поля, передаем только те, что соответствуют новой схеме
-                # Преобразуем retention -> retention_days
-                if "retention" in v:
-                    v["retention_days"] = v.pop("retention")
-                # Преобразуем databases list[dict] -> list[str] (если возможно)
-                if "databases" in v and isinstance(v["databases"], list):
-                    # Попробуем преобразовать каждый dict в строку подключения
-                    new_dbs = []
-                    for db in v["databases"]:
-                        if isinstance(db, dict) and "url" in db:
-                            new_dbs.append(db["url"])
-                        elif isinstance(db, str):
-                            new_dbs.append(db)
-                        else:
-                            # Пропускаем некорректные записи
-                            continue
-                    v["databases"] = new_dbs
+                v["retention_days"] = v.pop("retention")
+            # databases list[dict] -> list[str] (если возможно)
+            if "databases" in v and isinstance(v["databases"], list):
+                new_dbs = []
+                for db in v["databases"]:
+                    if isinstance(db, dict) and "url" in db:
+                        new_dbs.append(db["url"])
+                    elif isinstance(db, str):
+                        new_dbs.append(db)
+                    else:
+                        continue
+                v["databases"] = new_dbs
         return v
 
 
