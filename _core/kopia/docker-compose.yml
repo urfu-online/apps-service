@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   kopia:
     image: kopia/kopia:latest
@@ -9,14 +7,31 @@ services:
       - ../../services:/services:ro
       - /data/kopia:/repository
       - ./config:/kopia
+      - ./entrypoint.sh:/kopia/entrypoint.sh:ro
     environment:
       - KOPIA_REPOSITORY=${KOPIA_REPOSITORY:-/repository}
       - KOPIA_REPOSITORY_PASSWORD=${KOPIA_REPOSITORY_PASSWORD}
+      # kopia CLI читает пароль репозитория из KOPIA_PASSWORD — нужен для
+      # healthcheck и любых kopia-команд внутри контейнера
+      - KOPIA_PASSWORD=${KOPIA_REPOSITORY_PASSWORD}
       - KOPIA_STORAGE_TYPE=${KOPIA_STORAGE_TYPE:-filesystem}
       - KOPIA_SERVER_USERNAME=${KOPIA_SERVER_USERNAME:-admin}
       - KOPIA_SERVER_PASSWORD_FILE=${KOPIA_SERVER_PASSWORD_FILE:-/kopia/server.pass}
+      - KOPIA_SERVER_PASSWORD=${KOPIA_SERVER_PASSWORD:-}
+      # Опционально для s3/sftp-репозиториев (см. .env.example)
+      - KOPIA_S3_BUCKET=${KOPIA_S3_BUCKET:-}
+      - KOPIA_S3_ENDPOINT=${KOPIA_S3_ENDPOINT:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-}
+      - KOPIA_SFTP_HOST=${KOPIA_SFTP_HOST:-}
+      - KOPIA_SFTP_PORT=${KOPIA_SFTP_PORT:-22}
+      - KOPIA_SFTP_USER=${KOPIA_SFTP_USER:-}
+      - KOPIA_SFTP_KEYFILE=${KOPIA_SFTP_KEYFILE:-}
+      - KOPIA_SFTP_PATH=${KOPIA_SFTP_PATH:-}
     ports:
-      - "51515:51515"
+      # UI/сервер бэкапов только с localhost хоста (не светим наружу)
+      - "127.0.0.1:51515:51515"
     entrypoint: /kopia/entrypoint.sh
     command: []
     healthcheck:
@@ -26,9 +41,10 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - apps-service-net
+      # Та же сеть, что и master: KopiaBackupManager ходит на http://kopia:51515
+      - platform
 
 networks:
-  apps-service-net:
+  platform:
     external: true
-    name: apps-service-net
+    name: platform_network

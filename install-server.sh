@@ -27,7 +27,7 @@
 #   3. Python 3.11+ (нужен для platform-cli; в 22.04 по умолчанию 3.10)
 #   4. Бэкап живого состояния (для обновления) + раскладка/обновление кода в /apps
 #   5. ops/platform CLI и системный конфиг (при обновлении уже стоящее не трогаем)
-#   6. Сборка и запуск core-сервисов (master + caddy)
+#   6. Сборка и запуск core-сервисов (master + caddy) + Kopia (бэкапы)
 #   7. Создание admin-пользователя API (builtin auth)
 #   8. Деплой тестового сервиса smoke-test (чистая установка)
 #   9. Проверка основных функций платформы
@@ -886,6 +886,69 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ШАГ 6b. Kopia (сервис бэкапов)
+# ─────────────────────────────────────────────────────────────────────────────
+section "ШАГ 6b. Kopia (сервис бэкапов)"
+STEP="Шаг 6b: kopia"
+
+KOP_DIR="$APPS_ROOT/_core/kopia"
+if [ ! -f "$KOP_DIR/docker-compose.yml" ]; then
+    warn "kopia-compose не найден ($KOP_DIR) — шаг пропущен"
+else
+    run mkdir -p /data/kopia "$KOP_DIR/config"
+    if [ ! -f "$KOP_DIR/.env" ]; then
+        KPASS=$(openssl rand -hex 24)
+        cat > "$KOP_DIR/.env" <<KENV_EOF
+KOPIA_REPOSITORY=/repository
+KOPIA_REPOSITORY_PASSWORD=$KPASS
+KOPIA_STORAGE_TYPE=filesystem
+KOPIA_SERVER_USERNAME=admin
+KOPIA_SERVER_PASSWORD_FILE=/kopia/server.pass
+KENV_EOF
+        chmod 0600 "$KOP_DIR/.env"
+        ok "Создан $KOP_DIR/.env (пароль репозитория сгенерирован)"
+        # Пароль нужен и master (KopiaBackupManager) — дублируем в корневой .env
+        if [ -f "$ENV_FILE" ] && ! grep -q '^KOPIA_REPOSITORY=' "$ENV_FILE"; then
+            {
+                echo ""
+                echo "# Kopia — синхронизировано install-server.sh из _core/kopia/.env"
+                echo "KOPIA_REPOSITORY=/repository"
+                echo "KOPIA_REPOSITORY_PASSWORD=$KPASS"
+            } >> "$ENV_FILE"
+            ok "KOPIA_* добавлены в $ENV_FILE (читает master)"
+        fi
+    else
+        ok "$KOP_DIR/.env уже существует — не трогаю"
+    fi
+
+    if (cd "$KOP_DIR" && run docker compose up -d); then
+        log "Ожидание готовности kopia (healthcheck), до 90 секунд..."
+        KOP_HEALTH="unknown"
+        for _ in $(seq 1 30); do
+            KOP_HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' kopia 2>/dev/null || echo "missing")
+            [ "$KOP_HEALTH" = "healthy" ] && break
+            sleep 3
+        done
+        if [ "$KOP_HEALTH" = "healthy" ]; then
+            res PASS "Kopia: контейнер healthy (репозиторий создан)" "$(docker logs kopia --tail 1 2>/dev/null | head -c 120)"
+        else
+            res FAIL "Kopia: контейнер healthy" "health=$KOP_HEALTH"
+            hint "docker logs kopia --tail 30"
+        fi
+    else
+        res FAIL "Kopia: docker compose up" "контейнер не поднялся"
+        hint "docker logs kopia --tail 30"
+    fi
+    if docker inspect kopia >/dev/null 2>&1; then
+        KN=$(docker inspect -f '{{range $k,$_ := .NetworkSettings.Networks}}{{$k}} {{end}}' kopia 2>/dev/null || true)
+        case " $KN " in
+            *" $PLATFORM_NETWORK "*) res PASS "Kopia в сети $PLATFORM_NETWORK" "$KN" ;;
+            *) res FAIL "Kopia в сети $PLATFORM_NETWORK" "сети: $KN" ;;
+        esac
+    fi
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ШАГ 7. Admin-пользователь для API (builtin auth)
 # ─────────────────────────────────────────────────────────────────────────────
 section "ШАГ 7/10. Admin-пользователь API (builtin auth)"
@@ -1300,6 +1363,7 @@ echo "    platform list | platform status <svc> | platform logs <svc> -f"
 echo "    platform deploy <svc> --build | platform stop <svc> | platform backup <svc>"
 echo "    ops list | ops up <svc> | ops logs <svc> | ops reload"
 echo "    docker logs -f $MASTER_CONTAINER --tail 100"
+echo "    kopia UI:  http://127.0.0.1:51515  (admin; пароль в $APPS_ROOT/_core/kopia/.env)"
 echo "    tail -f $APPS_ROOT/_core/caddy/logs/access.log"
 echo "    tail -f $APPS_ROOT/_core/caddy/logs/debug.log"
 echo "    SERVICE_NAME=<svc> bash $APPS_ROOT/docs/diagnostics/diagnose-server.sh"

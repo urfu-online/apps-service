@@ -45,7 +45,13 @@ class KopiaBackupManager:
         self.dry_run = dry_run
         self.subprocess_timeout = subprocess_timeout
         # Dynamically resolve scripts path relative to this file's location
-        self.scripts_path = Path(__file__).resolve().parent.parent.parent / "_core" / "backup" / "scripts"
+        # Скрипты бэкапов: путь в контейнере (/app/_core/backup/scripts — монтируется
+        # compose) и вариант для запуска из репозитория (_core/backup/scripts).
+        _cands = [
+            Path(__file__).resolve().parents[2] / "_core" / "backup" / "scripts",
+            Path(__file__).resolve().parents[3] / "backup" / "scripts",
+        ]
+        self.scripts_path = next((p for p in _cands if p.is_dir()), _cands[0])
         self.kopia_password = os.environ.get("KOPIA_REPOSITORY_PASSWORD")
         if not self.kopia_password and not dry_run:
             logger.warning("KOPIA_REPOSITORY_PASSWORD environment variable is not set")
@@ -95,8 +101,22 @@ class KopiaBackupManager:
             # Переменные для скрипта
             env["SERVICE_NAME"] = service_name
             env["BACKUP_SOURCE"] = str(tmp_path)
+            # Скрипт ходит в kopia-server по HTTP. Дефолт "localhost" неверен:
+            # kopia — отдельный контейнер в platform_network (http://kopia:51515).
+            env.setdefault("KOPIA_HOST", os.getenv("KOPIA_HOST", "kopia"))
+            # Пароль сервера по умолчанию равен паролю репозитория (см. entrypoint.sh kopia)
+            env.setdefault(
+                "KOPIA_SERVER_PASSWORD",
+                os.getenv("KOPIA_SERVER_PASSWORD") or (self.kopia_password or ""),
+            )
 
-            cmd = ["bash", str(script_path), service_name, str(tmp_path)]
+            # kopia_backup.sh принимает именованные флаги (--source/--service),
+            # позиционные аргументы он отвергает.
+            cmd = [
+                "bash", str(script_path),
+                "--source", str(tmp_path),
+                "--service", service_name,
+            ]
 
             if self.dry_run:
                 logger.info(f"DRY RUN: would execute: {cmd}")

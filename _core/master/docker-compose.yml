@@ -53,6 +53,9 @@ services:
       - ../../services:/services
       - ../../_core/caddy:/caddy
       - ../../backups/backups:/backups
+      # Скрипты бэкапов (kopia_backup.sh и др.) — путь, который ожидает
+      # KopiaBackupManager (app/services/kopia_backup_manager.py)
+      - ../../_core/backup/scripts:/app/_core/backup/scripts:ro
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - platform
