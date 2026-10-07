@@ -23,7 +23,8 @@ dependencies = [
 ]
 
 [project.scripts]
-platform = "apps_platform.cli:main"
+platform = "apps_platform.legacy_cli:main"
+platform2 = "apps_platform.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -51,7 +52,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 # tests: assert, захардкоженные пароли и временные пути допустимы
 "tests/*" = ["S101", "S105", "S106", "S108"]
 # CLI легитимно вызывает docker через subprocess с частичным путём и читает HostIp
-"apps_platform/cli.py" = ["S603", "S607", "S104"]
+"apps_platform/legacy_cli.py" = ["S603", "S607", "S104"]
 "apps_platform/service_inspection.py" = ["S603", "S607", "S104"]
 
 [tool.black]

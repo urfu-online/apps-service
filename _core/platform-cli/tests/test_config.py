@@ -20,8 +20,8 @@ import typer
 import yaml
 from typer.testing import CliRunner
 
-from apps_platform import cli
-from apps_platform.cli import app, get_config, get_project_root
+from apps_platform import legacy_cli as cli
+from apps_platform.legacy_cli import app, get_config, get_project_root
 
 Exit = typer.Exit
 
@@ -91,7 +91,7 @@ class TestGetProjectRoot:
 
         monkeypatch.chdir(sub)
         # Переменная OPS_PROJECT_ROOT не задана → fallthrough на поиск маркера.
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", ()):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", ()):
             assert get_project_root() == project_root
 
     def test_marker_search_stops_at_filesystem_root(
@@ -103,7 +103,7 @@ class TestGetProjectRoot:
         isolated = tmp_path / "isolated"
         isolated.mkdir()
         monkeypatch.chdir(isolated)
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", ()):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", ()):
             # Маркера нигде нет → fallback на cwd
             assert get_project_root() == Path.cwd()
 
@@ -114,7 +114,7 @@ class TestGetProjectRoot:
     ) -> None:
         """Все источники отсутствуют → fallback на ``Path.cwd()``."""
         monkeypatch.chdir(tmp_path)
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", ()):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", ()):
             assert get_project_root() == tmp_path
 
     def test_project_root_from_system_config(
@@ -133,7 +133,7 @@ class TestGetProjectRoot:
         workdir.mkdir()
         monkeypatch.chdir(workdir)
 
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", (cfg_path,)):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", (cfg_path,)):
             assert get_project_root() == declared_root
 
     def test_project_root_from_system_config_nonexistent(
@@ -146,7 +146,7 @@ class TestGetProjectRoot:
         cfg_path.write_text(yaml.safe_dump({"project_root": "/definitely/missing"}))
 
         monkeypatch.chdir(tmp_path)
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", (cfg_path,)):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", (cfg_path,)):
             # Fallback на cwd, т.к. путь не существует
             assert get_project_root() == tmp_path
 
@@ -164,7 +164,7 @@ class TestGetProjectRoot:
         bad_cfg.write_text("placeholder")  # Файл существует, но open() падает
 
         with (
-            patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", (bad_cfg,)),
+            patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", (bad_cfg,)),
             patch("builtins.open", side_effect=OSError("boom")),
         ):
             assert get_project_root() == workdir
@@ -208,7 +208,7 @@ class TestGetConfig:
 
         monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
         monkeypatch.setenv("OPS_CONFIG_PATH", str(override_cfg))
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", ()):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", ()):
             cfg = get_config()
             assert cfg == {"a": 999, "b": {"c": "override"}}
 
@@ -230,7 +230,7 @@ class TestGetConfig:
         )
 
         monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", ()):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", ()):
             cfg = get_config()
             # b.c — перезаписан, b.d — сохранён, b.e — добавлен
             assert cfg == {"a": 1, "b": {"c": "local", "d": "base", "e": "local"}}
@@ -250,7 +250,7 @@ class TestGetConfig:
         second.write_text(yaml.safe_dump({"src": "second"}))
 
         monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", (second,)):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", (second,)):
             cfg = get_config()
             assert cfg == {"src": "first"}
 
@@ -261,7 +261,7 @@ class TestGetConfig:
     ) -> None:
         """Конфиг отсутствует → ``typer.Exit(1)``."""
         monkeypatch.setenv("OPS_PROJECT_ROOT", str(tmp_path))
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", ()):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", ()):
             with pytest.raises(Exit):
                 get_config()
 
@@ -278,7 +278,7 @@ class TestGetConfig:
 
         monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
         with (
-            patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", ()),
+            patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", ()),
             patch("builtins.open", side_effect=OSError("nope")),
         ):
             with pytest.raises(Exit):
@@ -295,7 +295,7 @@ class TestGetConfig:
         (project_root / ".ops-config.yml").write_text("")
 
         monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", ()):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", ()):
             assert get_config() == {}
 
     def test_malformed_yaml_treated_as_missing(
@@ -309,7 +309,7 @@ class TestGetConfig:
         (project_root / ".ops-config.yml").write_text("invalid: : yaml: ]")
 
         monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
-        with patch("apps_platform.cli._SYSTEM_CONFIG_PATHS", ()):
+        with patch("apps_platform.legacy_cli._SYSTEM_CONFIG_PATHS", ()):
             with pytest.raises((Exit, yaml.YAMLError)):
                 get_config()
 

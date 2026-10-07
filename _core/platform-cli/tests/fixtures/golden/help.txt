@@ -1,0 +1,9 @@
+                                                                                
+ Usage: platform2 [OPTIONS] COMMAND [ARGS]...                                   
+                                                                                
+ Управление платформой: status, info, service, diag, backup, proxy (§7.2).      
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --help  -h        Show this message and exit.                                │
+╰──────────────────────────────────────────────────────────────────────────────╯
+

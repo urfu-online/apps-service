@@ -8,7 +8,7 @@
 - не являются сами по себе командами CLI, а обслуживают команды из
   ``apps_platform.commands`` (особенно ``list_services``).
 
-Чтобы тесты с патчами вида ``apps_platform.cli._matches_service`` продолжали
+Чтобы тесты с патчами вида ``apps_platform.legacy_cli._matches_service`` продолжали
 работать, в ``cli.py`` эти имена ре-экспортируются.
 """
 
@@ -241,7 +241,7 @@ def _get_actual_service_urls(
     """Получение URL сервиса из Caddy / docker-compose / service.yml routing.
 
     ``project_root`` инжектируется вызывающей стороной, чтобы избежать
-    циклической зависимости от ``apps_platform.cli.get_project_root``.
+    циклической зависимости от ``apps_platform.legacy_cli.get_project_root``.
     """
     import yaml
 

@@ -1,13 +1,13 @@
 """Команда ``platform list`` — отображение всех сервисов платформы.
 
 Хелперы (``get_services``, ``_get_all_container_statuses``, ``_matches_service``,
-``_get_actual_service_urls``, ``_get_ssl_verify``) остаются в ``apps_platform.cli``;
+``_get_actual_service_urls``, ``_get_ssl_verify``) остаются в ``apps_platform.legacy_cli``;
 обращения к ним идут через ссылку ``_cli`` для совместимости с патчами тестов.
 """
 
 from __future__ import annotations
 
-from apps_platform import cli as _cli
+from apps_platform import legacy_cli as _cli
 
 app = _cli.app
 

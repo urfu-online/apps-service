@@ -1,0 +1,5 @@
+✘ Команда изменена в platform v2.
+  Было: platform deploy api
+  Стало: platform service deploy api
+  Объект: deploy api
+  Подсказка: platform --help; заглушки будут удалены в v2.1

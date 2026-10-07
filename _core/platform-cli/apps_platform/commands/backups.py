@@ -1,11 +1,11 @@
 """Команды управления бэкапами Kopia: backup create/list/restore/delete.
 
-Хелперы остаются в ``apps_platform.cli``; обращения идут через ``_cli``.
+Хелперы остаются в ``apps_platform.legacy_cli``; обращения идут через ``_cli``.
 """
 
 from __future__ import annotations
 
-from apps_platform import cli as _cli
+from apps_platform import legacy_cli as _cli
 from apps_platform.api_client import get_api_client
 
 app = _cli.app

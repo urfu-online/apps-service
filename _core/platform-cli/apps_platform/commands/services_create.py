@@ -1,12 +1,12 @@
 """Команда ``platform new`` — создание нового сервиса из шаблона.
 
 Хелперы (``get_config``, ``get_project_root``, ``validate_service_name``) остаются
-в ``apps_platform.cli``; обращения идут через ``_cli``.
+в ``apps_platform.legacy_cli``; обращения идут через ``_cli``.
 """
 
 from __future__ import annotations
 
-from apps_platform import cli as _cli
+from apps_platform import legacy_cli as _cli
 
 app = _cli.app
 

@@ -1,5 +1,5 @@
 """
-Тесты для CLI модуля apps_platform.cli
+Тесты для CLI модуля apps_platform.legacy_cli
 """
 
 import os
@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 from apps_platform.caddy_parser import parse_caddy_config
 
 # Импортируем функции для тестирования
-from apps_platform.cli import (
+from apps_platform.legacy_cli import (
     AVAILABILITY_TIMEOUT,
     CADDY_DEFAULT_CONTAINER_NAME,
     DOCKER_TIMEOUT,
@@ -292,10 +292,10 @@ class TestListAvailabilityIntegration:
     def test_list_check_insecure_ignored_in_production(self):
         with (
             patch.dict(os.environ, {"PLATFORM_ENV": "production"}, clear=False),
-            patch("apps_platform.cli.get_services") as get_services_mock,
-            patch("apps_platform.cli._get_all_container_statuses") as statuses_mock,
-            patch("apps_platform.cli._get_actual_service_urls") as urls_mock,
-            patch("apps_platform.cli.requests.get") as get_mock,
+            patch("apps_platform.legacy_cli.get_services") as get_services_mock,
+            patch("apps_platform.legacy_cli._get_all_container_statuses") as statuses_mock,
+            patch("apps_platform.legacy_cli._get_actual_service_urls") as urls_mock,
+            patch("apps_platform.legacy_cli.requests.get") as get_mock,
         ):
             get_services_mock.return_value = {"demo": {"path": Path("/tmp/demo"), "type": "public"}}
             statuses_mock.return_value = {"demo": "Up 10 seconds"}
@@ -311,10 +311,10 @@ class TestListAvailabilityIntegration:
     def test_list_check_insecure_disables_verify_in_dev(self):
         with (
             patch.dict(os.environ, {"PLATFORM_ENV": "development"}, clear=False),
-            patch("apps_platform.cli.get_services") as get_services_mock,
-            patch("apps_platform.cli._get_all_container_statuses") as statuses_mock,
-            patch("apps_platform.cli._get_actual_service_urls") as urls_mock,
-            patch("apps_platform.cli.requests.get") as get_mock,
+            patch("apps_platform.legacy_cli.get_services") as get_services_mock,
+            patch("apps_platform.legacy_cli._get_all_container_statuses") as statuses_mock,
+            patch("apps_platform.legacy_cli._get_actual_service_urls") as urls_mock,
+            patch("apps_platform.legacy_cli.requests.get") as get_mock,
         ):
             get_services_mock.return_value = {"demo": {"path": Path("/tmp/demo"), "type": "public"}}
             statuses_mock.return_value = {"demo": "Up 10 seconds"}
@@ -360,26 +360,26 @@ class TestBackupCommands:
     @pytest.fixture
     def patch_backup_client(self, mock_backup_api_client: AsyncMock) -> None:
         """Патч для получения BackupAPIClient."""
-        with patch("apps_platform.cli.BackupAPIClient") as mock_client_class:
+        with patch("apps_platform.legacy_cli.BackupAPIClient") as mock_client_class:
             mock_client_class.return_value.__aenter__.return_value = mock_backup_api_client
             yield
 
     @pytest.fixture
     def mock_service_exists(self) -> None:
         """Мок проверки существования сервиса."""
-        with patch("apps_platform.cli._service_exists", return_value=True) as mock:
+        with patch("apps_platform.legacy_cli._service_exists", return_value=True) as mock:
             yield mock
 
     @pytest.fixture
     def mock_backup_enabled(self) -> None:
         """Мок проверки включённого бэкапа."""
-        with patch("apps_platform.cli._get_backup_enabled", return_value=True) as mock:
+        with patch("apps_platform.legacy_cli._get_backup_enabled", return_value=True) as mock:
             yield mock
 
     @pytest.fixture
     def mock_backup_disabled(self) -> None:
         """Мок проверки отключённого бэкапа."""
-        with patch("apps_platform.cli._get_backup_enabled", return_value=False) as mock:
+        with patch("apps_platform.legacy_cli._get_backup_enabled", return_value=False) as mock:
             yield mock
 
     @pytest.mark.asyncio
@@ -626,11 +626,11 @@ class TestDryRun:
         cfg.write_text(yaml.safe_dump({"services_path": "services"}))
 
         monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
-        from apps_platform.cli import get_config, get_project_root
+        from apps_platform.legacy_cli import get_config, get_project_root
         get_project_root.cache_clear()
         get_config.cache_clear()
 
-        with patch("apps_platform.cli.subprocess.run") as mock_run:
+        with patch("apps_platform.legacy_cli.subprocess.run") as mock_run:
             result = runner.invoke(app, ["deploy", "mysvc", "--dry-run"])
 
         assert result.exit_code == 0
@@ -652,7 +652,7 @@ class TestDryRun:
         )
 
         monkeypatch.setenv("OPS_PROJECT_ROOT", str(project_root))
-        from apps_platform.cli import get_config, get_project_root
+        from apps_platform.legacy_cli import get_config, get_project_root
         get_project_root.cache_clear()
         get_config.cache_clear()
 
@@ -673,7 +673,7 @@ class TestPlatformLock:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """``platform_lock`` захватывает и освобождает блокировку."""
-        from apps_platform.cli import platform_lock
+        from apps_platform.legacy_cli import platform_lock
 
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
         with platform_lock():
@@ -693,8 +693,8 @@ class TestPlatformLock:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Второй non-blocking ``platform_lock`` → ``typer.Exit(1)``."""
-        from apps_platform import cli as _cli
-        from apps_platform.cli import platform_lock
+        from apps_platform import legacy_cli as _cli
+        from apps_platform.legacy_cli import platform_lock
 
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
 
@@ -712,7 +712,7 @@ class TestPlatformLock:
         import threading
         import time
 
-        from apps_platform.cli import platform_lock
+        from apps_platform.legacy_cli import platform_lock
 
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
 
@@ -755,8 +755,8 @@ class TestPlatformLock:
         """``blocking=True`` с малым ``timeout`` → ``typer.Exit(1)`` при таймауте."""
         import threading
 
-        from apps_platform import cli as _cli
-        from apps_platform.cli import platform_lock
+        from apps_platform import legacy_cli as _cli
+        from apps_platform.legacy_cli import platform_lock
 
         monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
 

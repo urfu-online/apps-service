@@ -1,12 +1,14 @@
-"""Пакет команд platform-cli.
+"""Пакет команд platform-cli: субмодули регистрируются владельцем приложения.
 
-Команды регистрируются на ``apps_platform.cli.app`` при импорте модулей
-пакета. Чтобы патчи тестов вида ``apps_platform.cli.<helper>`` продолжали
-работать, команды обращаются к общим хелперам через ссылку на модуль
-``apps_platform.cli`` (``_cli``), а не через прямой ``from ... import``.
+Владельцы:
 
-Импорт субмодулей здесь обязателен: иначе ``from apps_platform import commands``
-загрузит только этот ``__init__`` и ``@app.command``-декораторы не сработают.
+- **v1** (``backups``, ``services``, ``services_create``, ``services_listing``) —
+  регистрация на ``apps_platform.legacy_cli.app`` выполняется явным импортом
+  в ``legacy_cli.py``;
+- **v2** (``legacy`` — заглушки §7.5) — регистрация через
+  ``commands.legacy.register(app)`` из ``apps_platform/cli.py`` (T8).
+
+Пакет намеренно пуст: импорт ``commands.legacy`` (v2) не должен тянуть весь
+v1 (``legacy_cli``, docker SDK, ``api_client``) — иначе composition root v2
+получает legacy-граф зависимостей при импорте.
 """
-
-from . import backups, services  # noqa: F401

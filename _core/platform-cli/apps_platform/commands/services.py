@@ -3,16 +3,16 @@
 Команды ``list`` и ``new`` вынесены в подмодули ``services_listing`` и
 ``services_create`` соответственно. Хелперы (``get_services``,
 ``compose_cmd``, ``get_service_or_fail``, ``get_service_status``, ...) остаются
-в ``apps_platform.cli``; обращения к ним идут через ``_cli`` для совместимости
-с патчами ``apps_platform.cli.<helper>`` в тестах.
+в ``apps_platform.legacy_cli``; обращения к ним идут через ``_cli`` для совместимости
+с патчами ``apps_platform.legacy_cli.<helper>`` в тестах.
 """
 
 from __future__ import annotations
 
-from apps_platform import cli as _cli
+from apps_platform import legacy_cli as _cli
 
 # Импорт подмодулей с тяжёлыми командами нужен для регистрации декораторов
-# @app.command на ``apps_platform.cli.app`` при загрузке пакета ``commands``.
+# @app.command на ``apps_platform.legacy_cli.app`` при загрузке пакета ``commands``.
 from . import services_create, services_listing  # noqa: F401
 
 app = _cli.app

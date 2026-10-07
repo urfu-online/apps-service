@@ -246,7 +246,7 @@ def get_api_client() -> APIClient:
         Настроенный экземпляр APIClient
     """
     from .config import get_config, _get_ssl_verify
-    from .cli import _get_ssl_verify, get_config
+    from .legacy_cli import _get_ssl_verify, get_config
 
     config = get_config()
     master_url = config.get("master_url", "http://localhost:8001")
